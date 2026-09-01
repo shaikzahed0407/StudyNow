@@ -1,0 +1,129 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-teal: oklch(0.67 0.15 178);
+  --color-teal-dark: oklch(0.4 0.11 178);
+  --color-coral: oklch(0.72 0.16 30);
+  --color-coral-dark: oklch(0.5 0.15 30);
+  --shadow-soft: 0 12px 32px -22px rgb(21 44 58 / 0.35);
+  --shadow-card: 0 22px 60px -36px rgb(21 44 58 / 0.4);
+  --shadow-lift: 0 26px 70px -30px rgb(22 65 76 / 0.35);
+}
+
+:root {
+  --primary: oklch(0.43 0.17 257);
+  --primary-foreground: oklch(0.99 0.01 250);
+  --sidebar-primary: oklch(0.43 0.17 257);
+  --sidebar-primary-foreground: oklch(0.99 0.01 250);
+  --radius: 0.9rem;
+  --background: oklch(0.985 0.008 100);
+  --foreground: oklch(0.2 0.025 245);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.025 245);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.025 245);
+  --secondary: oklch(0.95 0.025 190);
+  --secondary-foreground: oklch(0.3 0.06 200);
+  --muted: oklch(0.95 0.015 220);
+  --muted-foreground: oklch(0.5 0.035 240);
+  --accent: oklch(0.93 0.04 190);
+  --accent-foreground: oklch(0.25 0.06 210);
+  --destructive: oklch(0.58 0.2 28);
+  --destructive-foreground: oklch(0.99 0.01 20);
+  --border: oklch(0.88 0.025 220);
+  --input: oklch(0.88 0.025 220);
+  --ring: oklch(0.63 0.15 185);
+  --sidebar: oklch(0.98 0.01 205);
+  --sidebar-foreground: oklch(0.22 0.03 240);
+  --sidebar-accent: oklch(0.93 0.035 190);
+  --sidebar-accent-foreground: oklch(0.25 0.06 210);
+  --sidebar-border: oklch(0.88 0.025 220);
+  --sidebar-ring: oklch(0.63 0.15 185);
+}
+
+.dark {
+  --primary: oklch(0.7 0.15 215);
+  --primary-foreground: oklch(0.16 0.03 240);
+  --background: oklch(0.15 0.025 240);
+  --foreground: oklch(0.94 0.015 220);
+  --card: oklch(0.2 0.03 240);
+  --card-foreground: oklch(0.94 0.015 220);
+  --popover: oklch(0.2 0.03 240);
+  --popover-foreground: oklch(0.94 0.015 220);
+  --secondary: oklch(0.25 0.035 205);
+  --secondary-foreground: oklch(0.9 0.015 220);
+  --muted: oklch(0.25 0.03 240);
+  --muted-foreground: oklch(0.7 0.03 220);
+  --accent: oklch(0.27 0.05 200);
+  --accent-foreground: oklch(0.94 0.015 220);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.7 0.15 185);
+  --sidebar: oklch(0.18 0.03 240);
+  --sidebar-foreground: oklch(0.94 0.015 220);
+  --sidebar-accent: oklch(0.27 0.05 200);
+  --sidebar-accent-foreground: oklch(0.94 0.015 220);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.7 0.15 185);
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { scroll-behavior: smooth; }
+  body { @apply bg-background font-sans text-foreground; min-width: 320px; }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1; background-image: linear-gradient(rgb(27 61 86 / 0.035) 1px, transparent 1px), linear-gradient(90deg, rgb(27 61 86 / 0.035) 1px, transparent 1px); background-size: 32px 32px; mask-image: linear-gradient(to bottom, black, transparent 82%); }
+  button, [role="button"], a { transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
+  button:not(:disabled):active, [role="button"]:not([aria-disabled="true"]):active { transform: scale(0.97); }
+}
+
+@layer components {
+  .container { width: 100%; margin-inline: auto; padding-inline: 1rem; }
+  .flex { min-height: 0; min-width: 0; }
+  .font-display { font-family: var(--font-display); }
+  .iso-grid { background-image: linear-gradient(30deg, rgb(37 83 104 / 0.08) 12%, transparent 12.5%, transparent 87%, rgb(37 83 104 / 0.08) 87.5%, rgb(37 83 104 / 0.08)), linear-gradient(150deg, rgb(37 83 104 / 0.08) 12%, transparent 12.5%, transparent 87%, rgb(37 83 104 / 0.08) 87.5%, rgb(37 83 104 / 0.08)); background-size: 28px 48px; background-position: 0 0, 14px 24px; }
+  .iso-plane { transform: rotate(-5deg) skewY(-3deg); transform-origin: center; transition: transform 260ms cubic-bezier(0.23, 1, 0.32, 1); }
+  .iso-plane:hover { transform: rotate(-2deg) skewY(-2deg) translateY(-8px); }
+  .iso-plane-blue { background: linear-gradient(145deg, rgb(74 106 255 / 0.96), rgb(52 77 201 / 0.92)); }
+  .iso-plane-teal { background: linear-gradient(145deg, rgb(37 175 166 / 0.96), rgb(17 112 121 / 0.94)); }
+  .iso-plane-coral { background: linear-gradient(145deg, rgb(255 145 112 / 0.98), rgb(218 85 80 / 0.94)); }
+}
+
+@media (min-width: 640px) { .container { padding-inline: 1.5rem; } }
+@media (min-width: 1024px) { .container { max-width: 1280px; padding-inline: 2rem; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }

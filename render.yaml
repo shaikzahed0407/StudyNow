@@ -1,0 +1,39 @@
+services:
+  # 1. Main StudyNow Node/React Fullstack App
+  - type: web
+    name: studynow-web
+    runtime: node
+    plan: free
+    buildCommand: pnpm install && pnpm run build
+    startCommand: pnpm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: notes-files
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: JAVA_DOC_SERVICE_URL
+        fromService:
+          type: web
+          name: studynow-java-doc-service
+          property: host
+
+  # 2. Java Spring Boot Document Extraction Service
+  - type: web
+    name: studynow-java-doc-service
+    runtime: docker
+    dockerfilePath: java-doc-service/Dockerfile
+    dockerContext: java-doc-service
+    plan: free
+    envVars:
+      - key: PORT
+        value: 8080
