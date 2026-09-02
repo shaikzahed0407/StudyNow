@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { BookOpen, CheckCircle2, ChevronRight, Download, FileImage, FileText, Filter, Loader2, Plus, Search, Sparkles, UploadCloud, XCircle } from "lucide-react";
+import { BookOpen, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, Plus, Search, Sparkles, UploadCloud, XCircle } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { Link } from "wouter";
@@ -21,7 +21,13 @@ const statusMeta: Record<string, { label: string; className: string; icon: typeo
   failed: { label: "Needs review", className: "border-rose-200 bg-rose-50 text-rose-700", icon: XCircle },
 };
 
-const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
+const fileToBase64 = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 
 export default function Notes() {
   const [search, setSearch] = useState("");
@@ -39,36 +45,528 @@ export default function Notes() {
   const fileRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
   const subjects = trpc.subjects.list.useQuery();
-  const input = useMemo(() => ({ search: search.trim() || undefined, subjectId: selectedSubject === "all" ? undefined : Number(selectedSubject) }), [search, selectedSubject]);
+  const input = useMemo(
+    () => ({
+      search: search.trim() || undefined,
+      subjectId: selectedSubject === "all" ? undefined : Number(selectedSubject),
+    }),
+    [search, selectedSubject],
+  );
   const notes = trpc.notes.list.useQuery(input);
   const preview = trpc.notes.get.useQuery({ noteId: previewId || 0 }, { enabled: Boolean(previewId) });
-  const createSubject = trpc.subjects.create.useMutation({ onSuccess: () => { toast.success("Subject created"); setSubjectDialog(false); setSubjectName(""); setSubjectCode(""); utils.subjects.list.invalidate(); utils.dashboard.summary.invalidate(); }, onError: error => toast.error(error.message) });
-  const createText = trpc.notes.createText.useMutation({ onSuccess: () => { toast.success("Note saved"); closeNoteDialog(); utils.notes.list.invalidate(); utils.dashboard.summary.invalidate(); }, onError: error => toast.error(error.message) });
-  const createFile = trpc.notes.createFile.useMutation({ onSuccess: () => { toast.success("File uploaded and ready for search"); closeNoteDialog(); utils.notes.list.invalidate(); utils.dashboard.summary.invalidate(); }, onError: error => toast.error(error.message) });
-  const deleteNote = trpc.notes.delete.useMutation({ onSuccess: () => { toast.success("Note deleted"); setPreviewId(null); utils.notes.list.invalidate(); utils.dashboard.summary.invalidate(); }, onError: error => toast.error(error.message) });
 
-  const closeNoteDialog = () => { setNoteDialog(false); setNoteTitle(""); setNoteContent(""); setNoteSource(""); setNoteTags(""); setFile(null); if (fileRef.current) fileRef.current.value = ""; };
+  const createSubject = trpc.subjects.create.useMutation({
+    onSuccess: () => {
+      toast.success("Personal subject created");
+      setSubjectDialog(false);
+      setSubjectName("");
+      setSubjectCode("");
+      utils.subjects.list.invalidate();
+      utils.dashboard.summary.invalidate();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const createText = trpc.notes.createText.useMutation({
+    onSuccess: () => {
+      toast.success("Note saved");
+      closeNoteDialog();
+      utils.notes.list.invalidate();
+      utils.dashboard.summary.invalidate();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const createFile = trpc.notes.createFile.useMutation({
+    onSuccess: () => {
+      toast.success("File uploaded and ready for search");
+      closeNoteDialog();
+      utils.notes.list.invalidate();
+      utils.dashboard.summary.invalidate();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const deleteNote = trpc.notes.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Note deleted");
+      setPreviewId(null);
+      utils.notes.list.invalidate();
+      utils.dashboard.summary.invalidate();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const closeNoteDialog = () => {
+    setNoteDialog(false);
+    setNoteTitle("");
+    setNoteContent("");
+    setNoteSource("");
+    setNoteTags("");
+    setFile(null);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
   const submitNote = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!noteTitle.trim()) return toast.error("Give your note a title first.");
-    if (selectedSubject === "all") return toast.error("Choose a subject before saving a note.");
+    if (selectedSubject === "all" || !selectedSubject) return toast.error("Choose a subject before saving a note.");
     if (file) {
       if (file.size > 15 * 1024 * 1024) return toast.error("Files must be 15 MB or smaller.");
-      createFile.mutate({ subjectId: Number(selectedSubject), title: noteTitle.trim(), source: noteSource.trim() || undefined, tags: noteTags.trim() || undefined, fileName: file.name, mimeType: file.type || "application/octet-stream", base64: await fileToBase64(file) });
+      createFile.mutate({
+        subjectId: Number(selectedSubject),
+        title: noteTitle.trim(),
+        source: noteSource.trim() || undefined,
+        tags: noteTags.trim() || undefined,
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        base64: await fileToBase64(file),
+      });
     } else {
-      createText.mutate({ subjectId: Number(selectedSubject), title: noteTitle.trim(), source: noteSource.trim() || undefined, tags: noteTags.trim() || undefined, content: noteContent.trim() });
+      createText.mutate({
+        subjectId: Number(selectedSubject),
+        title: noteTitle.trim(),
+        source: noteSource.trim() || undefined,
+        tags: noteTags.trim() || undefined,
+        content: noteContent.trim(),
+      });
     }
   };
 
   return (
     <div className="mx-auto max-w-[1320px] space-y-7">
-      <section className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end"><div><div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.15em] text-primary"><FileText className="size-4" /> Personal library</div><h1 className="font-display text-3xl font-black tracking-tight sm:text-5xl">My notes</h1><p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">A private, searchable space for the material you want close when revision gets specific.</p></div><div className="flex gap-2"><Dialog open={subjectDialog} onOpenChange={setSubjectDialog}><DialogTrigger asChild><Button variant="outline" className="rounded-xl bg-white/70"><BookOpen className="mr-2 size-4" /> New subject</Button></DialogTrigger><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Create a subject</DialogTitle><DialogDescription>Use subjects to keep retrieval focused and your library easy to scan.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label htmlFor="subject-name">Subject name</Label><Input id="subject-name" value={subjectName} onChange={e => setSubjectName(e.target.value)} placeholder="e.g. Data Structures" /></div><div className="space-y-2"><Label htmlFor="subject-code">Course code <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="subject-code" value={subjectCode} onChange={e => setSubjectCode(e.target.value)} placeholder="e.g. CS-204" /></div></div><DialogFooter><Button variant="outline" onClick={() => setSubjectDialog(false)}>Cancel</Button><Button disabled={!subjectName.trim() || createSubject.isPending} onClick={() => createSubject.mutate({ name: subjectName.trim(), code: subjectCode.trim() || undefined })}>{createSubject.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Plus className="mr-2 size-4" />}Create subject</Button></DialogFooter></DialogContent></Dialog><Dialog open={noteDialog} onOpenChange={open => open ? setNoteDialog(true) : closeNoteDialog()}><DialogTrigger asChild><Button className="rounded-xl shadow-lift"><Plus className="mr-2 size-4" /> Add note</Button></DialogTrigger><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Add to your library</DialogTitle><DialogDescription>Write a note or attach a source file. We keep the original in managed storage and track its processing state here.</DialogDescription></DialogHeader><form onSubmit={submitNote} className="space-y-4 py-2"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2 sm:col-span-2"><Label htmlFor="note-title">Title</Label><Input id="note-title" value={noteTitle} onChange={e => setNoteTitle(e.target.value)} placeholder="e.g. Graph traversal — BFS vs DFS" /></div><div className="space-y-2"><Label>Subject</Label><Select value={selectedSubject === "all" ? "" : selectedSubject} onValueChange={setSelectedSubject}><SelectTrigger><SelectValue placeholder="Choose a subject" /></SelectTrigger><SelectContent>{subjects.data?.map(subject => <SelectItem key={subject.id} value={String(subject.id)}>{subject.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label htmlFor="note-source">Source <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="note-source" value={noteSource} onChange={e => setNoteSource(e.target.value)} placeholder="Lecture 04 / Prof. Shah" /></div></div><div className="space-y-2"><Label htmlFor="note-tags">Tags <span className="font-normal text-muted-foreground">(comma separated)</span></Label><Input id="note-tags" value={noteTags} onChange={e => setNoteTags(e.target.value)} placeholder="algorithms, graphs, exam" /></div><div className="space-y-2"><Label htmlFor="note-content">Rich-text / Markdown note</Label><Textarea id="note-content" value={noteContent} onChange={e => setNoteContent(e.target.value)} placeholder="Write the key concepts, definitions, or a worked example…" className="min-h-32" /></div><div className="rounded-2xl border border-dashed border-primary/25 bg-primary/[0.03] p-4"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><UploadCloud className="size-5" /></div><div className="flex-1"><p className="text-sm font-bold">Attach a source file</p><p className="mt-1 text-xs leading-5 text-muted-foreground">PDF, PPT/PPTX, DOC/DOCX, PNG, JPG, WEBP, TXT · up to 15 MB</p></div><Button type="button" variant="outline" className="rounded-lg bg-white" onClick={() => fileRef.current?.click()}>Choose file</Button></div>{file && <div className="mt-3 flex items-center justify-between rounded-xl bg-white p-3 text-sm"><span className="flex min-w-0 items-center gap-2 font-semibold"><FileText className="size-4 shrink-0 text-primary" /><span className="truncate">{file.name}</span></span><button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ""; }} aria-label="Remove selected file"><XCircle className="size-4" /></button></div>}<input ref={fileRef} type="file" className="hidden" accept=".txt,.md,.html,.pdf,.ppt,.pptx,.doc,.docx,.png,.jpg,.jpeg,.webp" onChange={e => setFile(e.target.files?.[0] || null)} /></div><DialogFooter><Button type="button" variant="outline" onClick={closeNoteDialog}>Cancel</Button><Button type="submit" disabled={createText.isPending || createFile.isPending}>{(createText.isPending || createFile.isPending) && <Loader2 className="mr-2 size-4 animate-spin" />}{file ? "Upload file" : "Save note"}</Button></DialogFooter></form></DialogContent></Dialog></div></section>
+      <section className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
+        <div>
+          <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.15em] text-primary">
+            <FileText className="size-4" /> Personal library
+          </div>
+          <h1 className="font-display text-3xl font-black tracking-tight sm:text-5xl">My notes</h1>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
+            A private, searchable space for the material you want close when revision gets specific. Categorize under official course subjects or your own personal subjects.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {/* Create Subject Modal */}
+          <Dialog open={subjectDialog} onOpenChange={setSubjectDialog}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="rounded-xl bg-white/70">
+                <BookOpen className="mr-2 size-4" /> New subject
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Create a personal subject</DialogTitle>
+                <DialogDescription>
+                  Create a custom subject for personal study topics, revision categories, or non-curricular notes.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="subject-name">Subject name <span className="text-destructive">*</span></Label>
+                  <Input
+                    id="subject-name"
+                    value={subjectName}
+                    onChange={(e) => setSubjectName(e.target.value)}
+                    placeholder="e.g. Competitive Programming"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="subject-code">
+                    Subject / Custom code <span className="font-normal text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    id="subject-code"
+                    value={subjectCode}
+                    onChange={(e) => setSubjectCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. CP-101"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSubjectDialog(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  disabled={!subjectName.trim() || createSubject.isPending}
+                  onClick={() =>
+                    createSubject.mutate({
+                      name: subjectName.trim(),
+                      code: subjectCode.trim() || undefined,
+                    })
+                  }
+                >
+                  {createSubject.isPending ? (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  ) : (
+                    <Plus className="mr-2 size-4" />
+                  )}
+                  Create subject
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
-      <section className="grid gap-3 lg:grid-cols-[1fr_auto]"><div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search titles, tags, sources, or note text…" className="h-12 rounded-xl border-border/70 bg-white/75 pl-11" /></div><div className="flex items-center gap-2 overflow-x-auto pb-1"><Filter className="size-4 shrink-0 text-muted-foreground" /><Button variant={selectedSubject === "all" ? "default" : "outline"} onClick={() => setSelectedSubject("all")} className="shrink-0 rounded-xl">All subjects</Button>{subjects.data?.slice(0, 5).map(subject => <Button key={subject.id} variant={selectedSubject === String(subject.id) ? "default" : "outline"} onClick={() => setSelectedSubject(String(subject.id))} className="shrink-0 rounded-xl bg-white/60">{subject.name}</Button>)}</div></section>
+          {/* Add Note Modal */}
+          <Dialog open={noteDialog} onOpenChange={(open) => (open ? setNoteDialog(true) : closeNoteDialog())}>
+            <DialogTrigger asChild>
+              <Button className="rounded-xl shadow-lift">
+                <Plus className="mr-2 size-4" /> Add note
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Add to your library</DialogTitle>
+                <DialogDescription>
+                  Write a note or attach a source file. We keep the original in managed storage and index it for AI retrieval.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={submitNote} className="space-y-4 py-2">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="note-title">Title <span className="text-destructive">*</span></Label>
+                    <Input
+                      id="note-title"
+                      value={noteTitle}
+                      onChange={(e) => setNoteTitle(e.target.value)}
+                      placeholder="e.g. Graph traversal — BFS vs DFS"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Subject <span className="text-destructive">*</span></Label>
+                    <Select
+                      value={selectedSubject === "all" ? "" : selectedSubject}
+                      onValueChange={setSelectedSubject}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a subject" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subjects.data?.map((subject) => (
+                          <SelectItem key={subject.id} value={String(subject.id)}>
+                            {subject.code ? `[${subject.code}] ${subject.name}` : subject.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="note-source">
+                      Source <span className="font-normal text-muted-foreground">(optional)</span>
+                    </Label>
+                    <Input
+                      id="note-source"
+                      value={noteSource}
+                      onChange={(e) => setNoteSource(e.target.value)}
+                      placeholder="Lecture 04 / Prof. Shah"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="note-tags">
+                    Tags <span className="font-normal text-muted-foreground">(comma separated)</span>
+                  </Label>
+                  <Input
+                    id="note-tags"
+                    value={noteTags}
+                    onChange={(e) => setNoteTags(e.target.value)}
+                    placeholder="algorithms, graphs, exam"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="note-content">Rich-text / Markdown note</Label>
+                  <Textarea
+                    id="note-content"
+                    value={noteContent}
+                    onChange={(e) => setNoteContent(e.target.value)}
+                    placeholder="Write the key concepts, definitions, or a worked example…"
+                    className="min-h-32"
+                  />
+                </div>
+                <div className="rounded-2xl border border-dashed border-primary/25 bg-primary/[0.03] p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                      <UploadCloud className="size-5" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold">Attach a source file</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        PDF, PPT/PPTX, DOC/DOCX, PNG, JPG, WEBP, TXT · up to 15 MB
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-lg bg-white"
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      Choose file
+                    </Button>
+                  </div>
+                  {file && (
+                    <div className="mt-3 flex items-center justify-between rounded-xl bg-white p-3 text-sm">
+                      <span className="flex min-w-0 items-center gap-2 font-semibold">
+                        <FileText className="size-4 shrink-0 text-primary" />
+                        <span className="truncate">{file.name}</span>
+                      </span>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setFile(null);
+                          if (fileRef.current) fileRef.current.value = "";
+                        }}
+                        aria-label="Remove selected file"
+                      >
+                        <XCircle className="size-4" />
+                      </button>
+                    </div>
+                  )}
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    className="hidden"
+                    accept=".txt,.md,.html,.pdf,.ppt,.pptx,.doc,.docx,.png,.jpg,.jpeg,.webp"
+                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={closeNoteDialog}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={createText.isPending || createFile.isPending}>
+                    {(createText.isPending || createFile.isPending) && (
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                    )}
+                    {file ? "Upload file" : "Save note"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </section>
 
-      {notes.isLoading ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"><Skeleton className="h-48 rounded-2xl" /><Skeleton className="h-48 rounded-2xl" /><Skeleton className="h-48 rounded-2xl" /></div> : notes.data?.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{notes.data.map(note => { const meta = statusMeta[note.processingStatus] || statusMeta.uploaded; const Icon = meta.icon; return <Card key={note.id} className="group border-border/70 bg-card shadow-soft transition hover:-translate-y-1 hover:shadow-lift"><CardHeader className="pb-3"><div className="flex items-start justify-between gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><FileText className="size-5" /></div><Badge variant="outline" className={`gap-1.5 rounded-full ${meta.className}`}><Icon className={`size-3 ${note.processingStatus === "processing" ? "animate-spin" : ""}`} />{meta.label}</Badge></div><CardTitle className="mt-4 line-clamp-2 font-display text-lg font-extrabold tracking-tight">{note.title}</CardTitle></CardHeader><CardContent><p className="line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">{note.content || "Source file stored securely. Open the note to preview or download the original."}</p><div className="mt-4 flex flex-wrap gap-1.5">{(note.tags || "").split(",").filter(Boolean).slice(0, 3).map(tag => <span key={tag} className="rounded-md bg-muted px-2 py-1 text-[11px] font-semibold text-muted-foreground">{tag.trim()}</span>)}</div><div className="mt-5 flex items-center justify-between border-t border-border/70 pt-4"><span className="truncate pr-3 text-xs font-semibold text-muted-foreground">{note.source || "Personal note"}</span><Button variant="ghost" size="sm" className="shrink-0 rounded-lg px-2" onClick={() => setPreviewId(note.id)}>Open <ChevronRight className="ml-1 size-4" /></Button></div></CardContent></Card>; })}</div> : <Card className="border-dashed border-border bg-white/50 shadow-none"><CardContent className="grid place-items-center px-6 py-16 text-center"><div className="grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary"><FileText className="size-6" /></div><h2 className="mt-5 font-display text-xl font-extrabold">Your library is ready for its first page</h2><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">Create a subject, then save a rich-text note or upload a source file. The library will keep your metadata and processing state visible.</p><Button className="mt-6 rounded-xl" onClick={() => subjects.data?.length ? setNoteDialog(true) : setSubjectDialog(true)}><Plus className="mr-2 size-4" /> {subjects.data?.length ? "Add your first note" : "Create your first subject"}</Button></CardContent></Card>}
+      {/* Search & Subject Filters */}
+      <section className="grid gap-3 lg:grid-cols-[1fr_auto]">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search titles, tags, sources, or note text…"
+            className="h-12 rounded-xl border-border/70 bg-white/75 pl-11"
+          />
+        </div>
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          <Filter className="size-4 shrink-0 text-muted-foreground" />
+          <Button
+            variant={selectedSubject === "all" ? "default" : "outline"}
+            onClick={() => setSelectedSubject("all")}
+            className="shrink-0 rounded-xl"
+          >
+            All subjects
+          </Button>
+          {subjects.data?.map((subject) => (
+            <Button
+              key={subject.id}
+              variant={selectedSubject === String(subject.id) ? "default" : "outline"}
+              onClick={() => setSelectedSubject(String(subject.id))}
+              className="shrink-0 rounded-xl bg-white/60"
+            >
+              {subject.code ? `${subject.code} · ${subject.name}` : subject.name}
+            </Button>
+          ))}
+        </div>
+      </section>
 
-      <Dialog open={Boolean(previewId)} onOpenChange={open => !open && setPreviewId(null)}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{preview.data?.note.title || "Note preview"}</DialogTitle><DialogDescription>{preview.data?.note.source || "Stored note"} · {preview.data?.note.processingStatus}</DialogDescription></DialogHeader>{preview.isLoading ? <Skeleton className="h-48 w-full" /> : preview.data ? <div className="space-y-5">{preview.data.note.content && <div className="rounded-2xl bg-muted/60 p-5 text-sm leading-7"><Streamdown>{preview.data.note.content}</Streamdown></div>}{preview.data.files.map(file => <div key={file.id} className="overflow-hidden rounded-2xl border border-border/70">{file.mimeType.startsWith("image/") ? <img src={file.storageUrl} alt={file.originalName} className="max-h-[420px] w-full object-contain bg-muted/40" /> : <div className="flex items-center gap-3 p-4"><FileText className="size-5 text-primary" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{file.originalName}</p><p className="mt-1 text-xs text-muted-foreground">{file.mimeType} · {(file.sizeBytes / 1024 / 1024).toFixed(2)} MB</p></div><a href={file.storageUrl} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-lg border border-border px-3 py-2 text-sm font-bold hover:bg-muted"><Download className="mr-2 size-4" />Download</a></div>}</div>)}{preview.data.visuals.map(visual => <div key={visual.id} className="space-y-2"><p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">{visual.caption || "Visual evidence"}</p><img src={visual.storageUrl} alt={visual.caption || "Note visual"} className="max-h-[360px] rounded-2xl border border-border/70 object-contain" /></div>)}</div> : <p className="text-sm text-muted-foreground">This note is no longer available.</p>}<DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setPreviewId(null)}>Close</Button>{preview.data && <Button variant="destructive" className="rounded-xl" disabled={deleteNote.isPending} onClick={() => { const noteId = preview.data?.note.id; if (noteId && window.confirm("Delete this note and its indexed source files?")) deleteNote.mutate({ noteId }); }}>{deleteNote.isPending ? "Deleting…" : "Delete note"}</Button>}<Link href="/ask"><Button className="rounded-xl"><Sparkles className="mr-2 size-4" /> Ask about this material</Button></Link></DialogFooter></DialogContent></Dialog>
+      {/* Notes List */}
+      {notes.isLoading ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <Skeleton className="h-48 rounded-2xl" />
+          <Skeleton className="h-48 rounded-2xl" />
+          <Skeleton className="h-48 rounded-2xl" />
+        </div>
+      ) : notes.data?.length ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {notes.data.map((note) => {
+            const meta = statusMeta[note.processingStatus] || statusMeta.uploaded;
+            const Icon = meta.icon;
+            const subject = subjects.data?.find((s) => s.id === note.subjectId);
+            return (
+              <Card
+                key={note.id}
+                className="group border-border/70 bg-card shadow-soft transition hover:-translate-y-1 hover:shadow-lift"
+              >
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary">
+                      <FileText className="size-5" />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {subject?.code && (
+                        <Badge variant="outline" className="font-mono text-[11px] font-bold bg-primary/5 text-primary border-primary/20">
+                          {subject.code}
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className={`gap-1.5 rounded-full ${meta.className}`}>
+                        <Icon
+                          className={`size-3 ${note.processingStatus === "processing" ? "animate-spin" : ""}`}
+                        />
+                        {meta.label}
+                      </Badge>
+                    </div>
+                  </div>
+                  <CardTitle className="mt-4 line-clamp-2 font-display text-lg font-extrabold tracking-tight">
+                    {note.title}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">
+                    {note.content || "Source file stored securely. Open the note to preview or download the original."}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-1.5">
+                    {(note.tags || "")
+                      .split(",")
+                      .filter(Boolean)
+                      .slice(0, 3)
+                      .map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-md bg-muted px-2 py-1 text-[11px] font-semibold text-muted-foreground"
+                        >
+                          {tag.trim()}
+                        </span>
+                      ))}
+                  </div>
+                  <div className="mt-5 flex items-center justify-between border-t border-border/70 pt-4">
+                    <span className="truncate pr-3 text-xs font-semibold text-muted-foreground">
+                      {note.source || (subject ? subject.name : "Personal note")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0 rounded-lg px-2"
+                      onClick={() => setPreviewId(note.id)}
+                    >
+                      Open <ChevronRight className="ml-1 size-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      ) : (
+        <Card className="border-dashed border-border bg-white/50 shadow-none">
+          <CardContent className="grid place-items-center px-6 py-16 text-center">
+            <div className="grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">
+              <FileText className="size-6" />
+            </div>
+            <h2 className="mt-5 font-display text-xl font-extrabold">Your library is ready for its first page</h2>
+            <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+              Save a rich-text note or upload a source file. The library will keep your metadata and processing state visible.
+            </p>
+            <Button
+              className="mt-6 rounded-xl"
+              onClick={() => (subjects.data?.length ? setNoteDialog(true) : setSubjectDialog(true))}
+            >
+              <Plus className="mr-2 size-4" />
+              {subjects.data?.length ? "Add your first note" : "Create a personal subject"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Note Preview Dialog */}
+      <Dialog open={Boolean(previewId)} onOpenChange={(open) => !open && setPreviewId(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{preview.data?.note.title || "Note preview"}</DialogTitle>
+            <DialogDescription>
+              {preview.data?.note.source || "Stored note"} · {preview.data?.note.processingStatus}
+            </DialogDescription>
+          </DialogHeader>
+          {preview.isLoading ? (
+            <Skeleton className="h-48 w-full" />
+          ) : preview.data ? (
+            <div className="space-y-5">
+              {preview.data.note.content && (
+                <div className="rounded-2xl bg-muted/60 p-5 text-sm leading-7">
+                  <Streamdown>{preview.data.note.content}</Streamdown>
+                </div>
+              )}
+              {preview.data.files.map((file) => (
+                <div key={file.id} className="overflow-hidden rounded-2xl border border-border/70">
+                  {file.mimeType.startsWith("image/") ? (
+                    <img
+                      src={file.storageUrl}
+                      alt={file.originalName}
+                      className="max-h-[420px] w-full object-contain bg-muted/40"
+                    />
+                  ) : (
+                    <div className="flex items-center gap-3 p-4">
+                      <FileText className="size-5 text-primary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold">{file.originalName}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {file.mimeType} · {(file.sizeBytes / 1024 / 1024).toFixed(2)} MB
+                        </p>
+                      </div>
+                      <a
+                        href={file.storageUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center rounded-lg border border-border px-3 py-2 text-sm font-bold hover:bg-muted"
+                      >
+                        <Download className="mr-2 size-4" />
+                        Download
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {preview.data.visuals.map((visual) => (
+                <div key={visual.id} className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                    {visual.caption || "Visual evidence"}
+                  </p>
+                  <img
+                    src={visual.storageUrl}
+                    alt={visual.caption || "Note visual"}
+                    className="max-h-[360px] rounded-2xl border border-border/70 object-contain"
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">This note is no longer available.</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setPreviewId(null)}>
+              Close
+            </Button>
+            {preview.data && (
+              <Button
+                variant="destructive"
+                className="rounded-xl"
+                disabled={deleteNote.isPending}
+                onClick={() => {
+                  const noteId = preview.data?.note.id;
+                  if (noteId && window.confirm("Delete this note and its indexed source files?"))
+                    deleteNote.mutate({ noteId });
+                }}
+              >
+                {deleteNote.isPending ? "Deleting…" : "Delete note"}
+              </Button>
+            )}
+            <Link href="/ask">
+              <Button className="rounded-xl">
+                <Sparkles className="mr-2 size-4" /> Ask about this material
+              </Button>
+            </Link>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

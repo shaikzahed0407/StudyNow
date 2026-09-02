@@ -352,11 +352,35 @@ export const appRouter = router({
   }),
   subjects: router({
     list: workspaceProcedure.query(({ ctx }) => listSubjects(ctx.user.id)),
-    create: workspaceProcedure.input(z.object({ name: z.string().trim().min(1).max(160), code: z.string().trim().max(40).optional(), term: z.string().trim().max(80).optional(), description: z.string().trim().max(600).optional() })).mutation(async ({ ctx, input }) => {
-      const id = await createSubject({ ownerId: ctx.user.id, ...input });
-      await recordAudit(ctx.user.id, "create_subject", "subject", id, { name: input.name });
-      return { id };
-    }),
+    create: workspaceProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(1).max(160),
+          code: z.string().trim().max(40).optional(),
+          term: z.string().trim().max(80).optional(),
+          description: z.string().trim().max(600).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const isGlobal = role(ctx.user.role) === "admin" ? 1 : 0;
+        const code = input.code ? input.code.trim().toUpperCase() : undefined;
+        const id = await createSubject({
+          ownerId: ctx.user.id,
+          name: input.name,
+          code,
+          term: input.term,
+          description: input.description,
+          isGlobal,
+        });
+        await recordAudit(
+          ctx.user.id,
+          isGlobal ? "create_global_subject" : "create_subject",
+          "subject",
+          id,
+          { name: input.name, code, isGlobal: Boolean(isGlobal) },
+        );
+        return { id };
+      }),
     adminList: adminProcedure.query(() => listSubjectsForAdmin()),
   }),
   notes: router({

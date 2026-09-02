@@ -46,6 +46,7 @@ export const subjects = pgTable("subjects", {
   term: varchar("term", { length: 80 }),
   description: text("description"),
   ownerId: integer("ownerId").notNull(),
+  isGlobal: integer("isGlobal").default(0).notNull(),
   status: subjectStatusEnum("status").default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),

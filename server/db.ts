@@ -126,8 +126,13 @@ export async function listSubjects(ownerId: number) {
   return db
     .select()
     .from(subjects)
-    .where(and(eq(subjects.ownerId, ownerId), eq(subjects.status, "active")))
-    .orderBy(desc(subjects.updatedAt));
+    .where(
+      and(
+        or(eq(subjects.isGlobal, 1), eq(subjects.ownerId, ownerId)),
+        eq(subjects.status, "active"),
+      ),
+    )
+    .orderBy(desc(subjects.isGlobal), desc(subjects.updatedAt));
 }
 
 export async function createSubject(input: {
@@ -136,16 +141,19 @@ export async function createSubject(input: {
   code?: string;
   term?: string;
   description?: string;
+  isGlobal?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
   const result = await db
     .insert(subjects)
     .values({
-      ...input,
-      code: input.code || null,
-      term: input.term || null,
-      description: input.description || null,
+      ownerId: input.ownerId,
+      name: input.name,
+      code: input.code ? input.code.trim().toUpperCase() : null,
+      term: input.term ? input.term.trim() : null,
+      description: input.description ? input.description.trim() : null,
+      isGlobal: input.isGlobal !== undefined ? input.isGlobal : 0,
     })
     .returning({ id: subjects.id });
   return getInsertId(result);
