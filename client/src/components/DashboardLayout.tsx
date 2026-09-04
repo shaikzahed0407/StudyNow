@@ -21,7 +21,6 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { startLogin } from "@/const";
 import { LoginModal } from "./LoginModal";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
@@ -67,7 +66,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
           <h1 className="font-display text-2xl font-extrabold tracking-tight">Your notes, in reach.</h1>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            Sign in to enter your StudyNow workspace. Access is granted by an administrator.
+            Sign in to enter your StudyNow workspace.
           </p>
           <Button className="mt-7 w-full rounded-xl font-bold shadow-lift" onClick={() => setLoginOpen(true)}>
             Sign in to StudyNow
@@ -94,18 +93,29 @@ function DashboardLayoutContent({ user, children, setSidebarWidth }: { user: Non
   const { logout } = useAuth();
   const currentRole = roleName(user.role);
   const navItems = useMemo(() => {
-    const base = [{ icon: LayoutDashboard, label: "Overview", path: "/dashboard" }];
+    const base = [
+      { icon: LayoutDashboard, label: "Overview", path: "/dashboard" },
+      { icon: FileText, label: "My notes", path: "/notes" },
+      { icon: Users, label: "Study groups", path: "/groups" },
+    ];
     if (currentRole === "student" || currentRole === "admin") {
-      base.push({ icon: FileText, label: "My notes", path: "/notes" }, { icon: Library, label: "Class library", path: "/resources" }, { icon: Search, label: "Ask your notes", path: "/ask" });
+      base.push(
+        { icon: Library, label: "Class library", path: "/resources" },
+        { icon: Search, label: "Ask your notes", path: "/ask" }
+      );
     }
     if (currentRole === "teacher" || currentRole === "admin") {
       base.push({ icon: UploadCloud, label: "Teacher portal", path: "/teacher" });
     }
     if (currentRole === "admin") {
-      base.push({ icon: ShieldCheck, label: "Admin workspace", path: "/admin" }, { icon: Boxes, label: "Subjects & classes", path: "/admin/classes" });
+      base.push(
+        { icon: ShieldCheck, label: "Admin workspace", path: "/admin" },
+        { icon: Boxes, label: "Subjects & classes", path: "/admin/classes" }
+      );
     }
     return base;
   }, [currentRole]);
+
   const active = navItems.find(item => location === item.path) || navItems[0];
 
   useEffect(() => {

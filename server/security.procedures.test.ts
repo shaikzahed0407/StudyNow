@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   createConversation: vi.fn(),
   saveAiQuestion: vi.fn(),
   saveAnswerSources: vi.fn(),
+  isUserInStudyGroup: vi.fn(),
+  getAuthorizedChunksForGroup: vi.fn(),
 }));
 
 vi.mock("./db", async () => {
@@ -112,5 +114,28 @@ describe("StudyNow protected procedures", () => {
       expect.objectContaining({ noteId: 11, pageRef: "Page 1" }),
       expect.objectContaining({ noteId: 12, pageRef: "Slide 2" }),
     ]));
+  });
+
+  it("denies access when asking AI about a study group the student is not a member of", async () => {
+    mocks.isUserInStudyGroup.mockResolvedValue(false);
+    const student = appRouter.createCaller(contextFor("student", 42));
+    await expect(
+      student.ai.ask({ question: "Tell me about group notes", groupId: 999 }),
+    ).rejects.toThrow("You are not a member of this study group.");
+    expect(mocks.isUserInStudyGroup).toHaveBeenCalledWith(999, 42);
+    expect(mocks.getAuthorizedChunksForGroup).not.toHaveBeenCalled();
+  });
+
+  it("permits asking AI about a study group when the student is a member", async () => {
+    mocks.isUserInStudyGroup.mockResolvedValue(true);
+    mocks.getAuthorizedChunksForGroup.mockResolvedValue([
+      { id: 1, noteId: 11, pageRef: "Page 1", content: "Group binary search discussion.", keywords: "binary search" },
+    ]);
+    mocks.getNotesByIds.mockResolvedValue([{ id: 11, title: "Group shared note" }]);
+    const student = appRouter.createCaller(contextFor("student", 42));
+    const response = await student.ai.ask({ question: "How does binary search work?", groupId: 999 });
+    expect(response.foundInNotes).toBe(true);
+    expect(mocks.isUserInStudyGroup).toHaveBeenCalledWith(999, 42);
+    expect(mocks.getAuthorizedChunksForGroup).toHaveBeenCalledWith(999);
   });
 });

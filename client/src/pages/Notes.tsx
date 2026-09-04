@@ -8,11 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { trpc } from "@/lib/trpc";
-import { BookOpen, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, Plus, Search, Sparkles, UploadCloud, XCircle } from "lucide-react";
+import { BookOpen, CheckCircle2, ChevronRight, Download, FileText, Filter, Loader2, Plus, Search, Share2, Sparkles, UploadCloud, Users, XCircle } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { Link } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 
 const statusMeta: Record<string, { label: string; className: string; icon: typeof CheckCircle2 }> = {
   uploaded: { label: "Uploaded", className: "border-blue-200 bg-blue-50 text-blue-700", icon: UploadCloud },
@@ -30,6 +31,7 @@ const fileToBase64 = (file: File) =>
   });
 
 export default function Notes() {
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [selectedSubject, setSelectedSubject] = useState<string>("all");
   const [noteDialog, setNoteDialog] = useState(false);
@@ -41,10 +43,15 @@ export default function Notes() {
   const [noteTags, setNoteTags] = useState("");
   const [subjectName, setSubjectName] = useState("");
   const [subjectCode, setSubjectCode] = useState("");
+  const [isGlobalSubject, setIsGlobalSubject] = useState(false);
+  const [shareGroupDialog, setShareGroupDialog] = useState(false);
+  const [noteToShare, setNoteToShare] = useState<number | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
   const subjects = trpc.subjects.list.useQuery();
+  const groupsQuery = trpc.groups.list.useQuery();
   const input = useMemo(
     () => ({
       search: search.trim() || undefined,
@@ -57,14 +64,29 @@ export default function Notes() {
 
   const createSubject = trpc.subjects.create.useMutation({
     onSuccess: () => {
-      toast.success("Personal subject created");
+      toast.success(isGlobalSubject ? "Global curriculum subject created" : "Personal subject created");
       setSubjectDialog(false);
       setSubjectName("");
       setSubjectCode("");
+      setIsGlobalSubject(false);
       utils.subjects.list.invalidate();
       utils.dashboard.summary.invalidate();
     },
     onError: (error) => toast.error(error.message),
+  });
+
+  const shareToGroupMutation = trpc.groups.shareNote.useMutation({
+    onSuccess: (data) => {
+      if (data.alreadyShared) {
+        toast.info("Note is already shared with this group");
+      } else {
+        toast.success("Note shared to study group!");
+      }
+      setShareGroupDialog(false);
+      setNoteToShare(null);
+      setSelectedGroupId(null);
+    },
+    onError: (error) => toast.error(error.message || "Failed to share note"),
   });
 
   const createText = trpc.notes.createText.useMutation({
@@ -181,6 +203,20 @@ export default function Notes() {
                     placeholder="e.g. CP-101"
                   />
                 </div>
+                {user?.role === "admin" && (
+                  <div className="flex items-center space-x-2 pt-2 rounded-xl bg-muted/40 p-3 border border-border">
+                    <input
+                      type="checkbox"
+                      id="is-global"
+                      checked={isGlobalSubject}
+                      onChange={(e) => setIsGlobalSubject(e.target.checked)}
+                      className="size-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                    />
+                    <Label htmlFor="is-global" className="text-xs font-bold cursor-pointer text-foreground">
+                      Make Global Curriculum Subject (visible to all users)
+                    </Label>
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setSubjectDialog(false)}>
@@ -192,6 +228,7 @@ export default function Notes() {
                     createSubject.mutate({
                       name: subjectName.trim(),
                       code: subjectCode.trim() || undefined,
+                      isGlobal: isGlobalSubject,
                     })
                   }
                 >
@@ -442,14 +479,28 @@ export default function Notes() {
                     <span className="truncate pr-3 text-xs font-semibold text-muted-foreground">
                       {note.source || (subject ? subject.name : "Personal note")}
                     </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0 rounded-lg px-2"
-                      onClick={() => setPreviewId(note.id)}
-                    >
-                      Open <ChevronRight className="ml-1 size-4" />
-                    </Button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-lg px-2 text-xs font-semibold hover:bg-primary/10 hover:text-primary"
+                        onClick={() => {
+                          setNoteToShare(note.id);
+                          setShareGroupDialog(true);
+                        }}
+                        title="Share to a Study Group"
+                      >
+                        <Share2 className="mr-1 size-3.5" /> Share
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-lg px-2 text-xs font-semibold"
+                        onClick={() => setPreviewId(note.id)}
+                      >
+                        Open <ChevronRight className="ml-1 size-4" />
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -565,6 +616,64 @@ export default function Notes() {
               </Button>
             </Link>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Share Note to Group Dialog */}
+      <Dialog open={shareGroupDialog} onOpenChange={setShareGroupDialog}>
+        <DialogContent className="max-w-md rounded-2xl p-6">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl font-bold">Share to Study Group</DialogTitle>
+            <DialogDescription>
+              Select which group or class you want to share this study note to.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            {!groupsQuery.data?.length ? (
+              <div className="text-center py-4">
+                <Users className="mx-auto size-8 text-muted-foreground/60 mb-2" />
+                <p className="text-xs text-muted-foreground">You haven't joined or created any study groups yet.</p>
+                <Link href="/groups">
+                  <Button size="sm" className="mt-3 rounded-xl">Go to Study Groups</Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {groupsQuery.data.map((group) => {
+                  const isSelected = selectedGroupId === group.id;
+                  return (
+                    <div
+                      key={group.id}
+                      onClick={() => setSelectedGroupId(group.id)}
+                      className={`cursor-pointer rounded-xl border p-3 text-xs transition-all flex items-center justify-between ${
+                        isSelected
+                          ? "border-primary bg-primary/10 font-bold"
+                          : "border-border hover:bg-muted/30"
+                      }`}
+                    >
+                      <div>
+                        <p className="font-bold text-foreground">{group.name}</p>
+                        <span className="text-[10px] text-muted-foreground uppercase">{group.type === "class" ? "Class" : "Study Circle"}</span>
+                      </div>
+                      <span className="font-mono text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{group.code}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {Boolean(groupsQuery.data?.length) && (
+              <Button
+                onClick={() => {
+                  if (selectedGroupId && noteToShare) {
+                    shareToGroupMutation.mutate({ groupId: selectedGroupId, noteId: noteToShare });
+                  }
+                }}
+                disabled={!selectedGroupId || shareToGroupMutation.isPending}
+                className="w-full h-11 rounded-xl font-bold shadow-lift"
+              >
+                {shareToGroupMutation.isPending ? "Sharing..." : "Confirm & Share Note"}
+              </Button>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -15,6 +15,9 @@ import {
   notes,
   noteVisuals,
   savedResources,
+  studyGroupMembers,
+  studyGroupNotes,
+  studyGroups,
   subjects,
   teacherResources,
   users,
@@ -34,10 +37,16 @@ export function setDbForTests(db: any) {
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      const client = postgres(process.env.DATABASE_URL);
+      const isLocalhost =
+        process.env.DATABASE_URL.includes("localhost") ||
+        process.env.DATABASE_URL.includes("127.0.0.1");
+      const client = postgres(process.env.DATABASE_URL, {
+        prepare: false,
+        ...(isLocalhost ? {} : { ssl: "require" }),
+      });
       _db = drizzle(client);
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      console.error("[Database] Failed to connect:", error);
       _db = null;
     }
   }
@@ -93,10 +102,11 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   if (user.role !== undefined) {
     values.role = user.role;
     updateSet.role = user.role;
-  } else if (user.openId === ENV.ownerOpenId) {
+  } else if (user.openId === "demo_admin") {
     values.role = "admin";
     updateSet.role = "admin";
   }
+
   if (user.status !== undefined) {
     values.status = user.status;
     updateSet.status = user.status;
@@ -789,4 +799,269 @@ export async function listAuditEvents() {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(auditEvents).orderBy(desc(auditEvents.createdAt)).limit(50);
+}
+
+// -------------------------------------------------------------
+// Study Groups & Note Circles ("WhatsApp for Notes")
+// -------------------------------------------------------------
+
+function generateGroupCode(name: string): string {
+  const prefix = name
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 4)
+    .toUpperCase() || "GRP";
+  const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `${prefix}-${randomSuffix}`;
+}
+
+export async function createStudyGroup(input: {
+  name: string;
+  description?: string;
+  type?: "class" | "study_circle";
+  subjectId?: number;
+  ownerId: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+
+  let code = generateGroupCode(input.name);
+  // Ensure code uniqueness
+  const existing = await db.select().from(studyGroups).where(eq(studyGroups.code, code)).limit(1);
+  if (existing.length) {
+    code = `${code.slice(0, 4)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  }
+
+  const result = await db
+    .insert(studyGroups)
+    .values({
+      name: input.name.trim(),
+      code,
+      description: input.description?.trim() || null,
+      type: input.type || "study_circle",
+      subjectId: input.subjectId || null,
+      ownerId: input.ownerId,
+    })
+    .returning({ id: studyGroups.id });
+
+  const groupId = getInsertId(result);
+
+  // Add owner as member with 'owner' role
+  await db.insert(studyGroupMembers).values({
+    groupId,
+    userId: input.ownerId,
+    role: "owner",
+  });
+
+  return { id: groupId, code };
+}
+
+export async function joinStudyGroupByCode(code: string, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+
+  const normalizedCode = code.trim().toUpperCase();
+  const group = await db
+    .select()
+    .from(studyGroups)
+    .where(eq(studyGroups.code, normalizedCode))
+    .limit(1);
+
+  if (!group.length) {
+    throw new Error("No study group found with this join code");
+  }
+
+  const groupId = group[0].id;
+
+  const existingMember = await db
+    .select()
+    .from(studyGroupMembers)
+    .where(and(eq(studyGroupMembers.groupId, groupId), eq(studyGroupMembers.userId, userId)))
+    .limit(1);
+
+  if (existingMember.length) {
+    return { success: true, group: group[0], alreadyMember: true };
+  }
+
+  await db.insert(studyGroupMembers).values({
+    groupId,
+    userId,
+    role: "member",
+  });
+
+  return { success: true, group: group[0], alreadyMember: false };
+}
+
+export async function listStudyGroupsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const memberships = await db
+    .select()
+    .from(studyGroupMembers)
+    .where(eq(studyGroupMembers.userId, userId));
+
+  if (!memberships.length) return [];
+
+  const groupIds = memberships.map((m) => m.groupId);
+  const groups = await db
+    .select()
+    .from(studyGroups)
+    .where(inArray(studyGroups.id, groupIds))
+    .orderBy(desc(studyGroups.updatedAt));
+
+  return groups.map((group) => {
+    const membership = memberships.find((m) => m.groupId === group.id);
+    return {
+      ...group,
+      myRole: membership?.role || "member",
+    };
+  });
+}
+
+export async function isUserInStudyGroup(groupId: number, userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db
+    .select()
+    .from(studyGroupMembers)
+    .where(and(eq(studyGroupMembers.groupId, groupId), eq(studyGroupMembers.userId, userId)))
+    .limit(1);
+  return result.length > 0;
+}
+
+export async function getStudyGroupWithDetails(groupId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const isMember = await isUserInStudyGroup(groupId, userId);
+  if (!isMember) return null;
+
+  const groupResult = await db
+    .select()
+    .from(studyGroups)
+    .where(eq(studyGroups.id, groupId))
+    .limit(1);
+
+  if (!groupResult.length) return null;
+  const group = groupResult[0];
+
+  const members = await db
+    .select({
+      id: studyGroupMembers.id,
+      userId: studyGroupMembers.userId,
+      role: studyGroupMembers.role,
+      joinedAt: studyGroupMembers.joinedAt,
+      name: users.name,
+      email: users.email,
+    })
+    .from(studyGroupMembers)
+    .leftJoin(users, eq(studyGroupMembers.userId, users.id))
+    .where(eq(studyGroupMembers.groupId, groupId));
+
+  const sharedNoteRecords = await db
+    .select({
+      id: studyGroupNotes.id,
+      noteId: studyGroupNotes.noteId,
+      sharedAt: studyGroupNotes.sharedAt,
+      sharedByUserId: studyGroupNotes.sharedByUserId,
+      sharedByName: users.name,
+      title: notes.title,
+      kind: notes.kind,
+      source: notes.source,
+      tags: notes.tags,
+      content: notes.content,
+      processingStatus: notes.processingStatus,
+      updatedAt: notes.updatedAt,
+    })
+    .from(studyGroupNotes)
+    .leftJoin(notes, eq(studyGroupNotes.noteId, notes.id))
+    .leftJoin(users, eq(studyGroupNotes.sharedByUserId, users.id))
+    .where(eq(studyGroupNotes.groupId, groupId))
+    .orderBy(desc(studyGroupNotes.sharedAt));
+
+  return {
+    group,
+    members,
+    notes: sharedNoteRecords.filter((n) => n.title !== null),
+  };
+}
+
+export async function shareNoteToStudyGroup(groupId: number, noteId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+
+  const isMember = await isUserInStudyGroup(groupId, userId);
+  if (!isMember) throw new Error("You are not a member of this study group");
+
+  // Verify the user owns the note
+  const ownedNote = await db
+    .select()
+    .from(notes)
+    .where(and(eq(notes.id, noteId), eq(notes.ownerId, userId)))
+    .limit(1);
+
+  if (!ownedNote.length) {
+    throw new Error("You can only share your own notes");
+  }
+
+  // Check if already shared
+  const existing = await db
+    .select()
+    .from(studyGroupNotes)
+    .where(and(eq(studyGroupNotes.groupId, groupId), eq(studyGroupNotes.noteId, noteId)))
+    .limit(1);
+
+  if (existing.length) {
+    return { success: true, alreadyShared: true };
+  }
+
+  await db.insert(studyGroupNotes).values({
+    groupId,
+    noteId,
+    sharedByUserId: userId,
+  });
+
+  return { success: true, alreadyShared: false };
+}
+
+export async function removeNoteFromStudyGroup(groupId: number, noteId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+
+  const isMember = await isUserInStudyGroup(groupId, userId);
+  if (!isMember) throw new Error("You are not a member of this study group");
+
+  // Allow note author or group owner to remove
+  const group = await db.select().from(studyGroups).where(eq(studyGroups.id, groupId)).limit(1);
+  const isOwner = group[0]?.ownerId === userId;
+
+  const conditions = [
+    eq(studyGroupNotes.groupId, groupId),
+    eq(studyGroupNotes.noteId, noteId),
+  ];
+
+  if (!isOwner) {
+    conditions.push(eq(studyGroupNotes.sharedByUserId, userId));
+  }
+
+  await db.delete(studyGroupNotes).where(and(...conditions));
+  return { success: true };
+}
+
+export async function getAuthorizedChunksForGroup(groupId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const shared = await db
+    .select({ noteId: studyGroupNotes.noteId })
+    .from(studyGroupNotes)
+    .where(eq(studyGroupNotes.groupId, groupId));
+
+  if (!shared.length) return [];
+  const noteIds = shared.map((s) => s.noteId);
+
+  return db
+    .select()
+    .from(noteChunks)
+    .where(and(inArray(noteChunks.noteId, noteIds), eq(noteChunks.isActive, 1)));
 }

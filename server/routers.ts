@@ -3,6 +3,7 @@ import { z } from "zod";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -48,11 +49,18 @@ import {
   updateNoteProcessing,
   updateTeacherResource,
   updateUserAccess,
+  createStudyGroup,
+  joinStudyGroupByCode,
+  listStudyGroupsForUser,
+  getStudyGroupWithDetails,
+  shareNoteToStudyGroup,
+  removeNoteFromStudyGroup,
+  getAuthorizedChunksForGroup,
+  isUserInStudyGroup,
 } from "./db";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import type { DocumentProcessingResult } from "./services/documentProcessor";
 import { extractDocumentVisualAssets } from "./documentVisuals";
-import { tryJavaExtraction } from "./services/javaDocClient";
 
 const role = (value: string) => (value === "user" ? "student" : value);
 const workspaceProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -138,16 +146,19 @@ export function rankChunks(chunks: any[], question: string) {
 }
 
 async function chooseModel() {
+  if (ENV.geminiModel) {
+    return ENV.geminiModel;
+  }
   try {
     const result = await listLLMModels();
     const ids = result.data.map((model) => model.id);
     return (
       ids.find((id) => id.includes("gemini-3.7-flash")) ||
-      ids.find((id) => id.includes("gemini-3.5-flash-lite")) ||
+      ids.find((id) => id.includes("gemini-3.6-flash")) ||
       ids[0]
     );
   } catch {
-    return undefined;
+    return "gemini-3.7-flash";
   }
 }
 
@@ -171,11 +182,7 @@ async function extractUploadedFile(input: { fileName: string; mimeType: string; 
     return { chunks: chunkText(input.buffer.toString("utf8")), visuals: [] };
   }
 
-  // 1. PDF/PPTX go through the Java (Apache PDFBox/POI) extraction service first
-  const javaResult = await tryJavaExtraction(input);
-  if (javaResult && javaResult.chunks.length) return javaResult;
-
-  // 2. Multimodal Gemini extraction
+  // Multimodal Gemini extraction
   try {
     const model = await chooseModel();
     const dataUri = `data:${input.mimeType};base64,${input.buffer.toString("base64")}`;
@@ -310,11 +317,19 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const openId = input.email
           ? `user_${input.email.toLowerCase().replace(/[^a-z0-9]/g, "_")}`
-          : `demo_${input.role}_${Date.now()}`;
+          : `demo_${input.role}`;
+
+        const defaultName =
+          input.name ||
+          (input.role === "teacher"
+            ? "Professor Smith"
+            : input.role === "admin"
+              ? "System Administrator"
+              : "Demo Student");
 
         await upsertUser({
           openId,
-          name: input.name,
+          name: defaultName,
           email: input.email || null,
           role: input.role === "user" ? "student" : input.role,
           status: "active",
@@ -323,7 +338,7 @@ export const appRouter = router({
         });
 
         const sessionToken = await sdk.createSessionToken(openId, {
-          name: input.name,
+          name: defaultName,
           email: input.email,
           expiresInMs: ONE_YEAR_MS,
         });
@@ -347,7 +362,8 @@ export const appRouter = router({
       const notes = await listNotesForStudent(ctx.user.id);
       const classes = currentRole === "teacher" || currentRole === "admin" ? await listClassesForTeacher(ctx.user.id) : [];
       const resources = currentRole === "teacher" || currentRole === "admin" ? await listTeacherResources(ctx.user.id) : await listPublishedResources(ctx.user.id);
-      return { role: currentRole, subjects, notes, classes, resources };
+      const groups = await listStudyGroupsForUser(ctx.user.id);
+      return { role: currentRole, subjects, notes, classes, resources, groups };
     }),
   }),
   subjects: router({
@@ -359,10 +375,12 @@ export const appRouter = router({
           code: z.string().trim().max(40).optional(),
           term: z.string().trim().max(80).optional(),
           description: z.string().trim().max(600).optional(),
+          isGlobal: z.boolean().optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const isGlobal = role(ctx.user.role) === "admin" ? 1 : 0;
+        const isAdmin = role(ctx.user.role) === "admin";
+        const isGlobal = isAdmin ? (input.isGlobal !== false ? 1 : 0) : 0;
         const code = input.code ? input.code.trim().toUpperCase() : undefined;
         const id = await createSubject({
           ownerId: ctx.user.id,
@@ -458,12 +476,67 @@ export const appRouter = router({
       return { id };
     }),
   }),
+  groups: router({
+    list: workspaceProcedure.query(({ ctx }) => listStudyGroupsForUser(ctx.user.id)),
+    get: workspaceProcedure
+      .input(z.object({ groupId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        const group = await getStudyGroupWithDetails(input.groupId, ctx.user.id);
+        if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found or access denied" });
+        return group;
+      }),
+    create: workspaceProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(1).max(160),
+          description: z.string().trim().max(500).optional(),
+          type: z.enum(["class", "study_circle"]).default("study_circle"),
+          subjectId: z.number().int().positive().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        return createStudyGroup({ ...input, ownerId: ctx.user.id });
+      }),
+    join: workspaceProcedure
+      .input(z.object({ code: z.string().trim().min(1).max(20) }))
+      .mutation(async ({ ctx, input }) => {
+        return joinStudyGroupByCode(input.code, ctx.user.id);
+      }),
+    shareNote: workspaceProcedure
+      .input(
+        z.object({
+          groupId: z.number().int().positive(),
+          noteId: z.number().int().positive(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        return shareNoteToStudyGroup(input.groupId, input.noteId, ctx.user.id);
+      }),
+    removeNote: workspaceProcedure
+      .input(
+        z.object({
+          groupId: z.number().int().positive(),
+          noteId: z.number().int().positive(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        return removeNoteFromStudyGroup(input.groupId, input.noteId, ctx.user.id);
+      }),
+  }),
   ai: router({
     history: studentProcedure.query(({ ctx }) => listAiConversations(ctx.user.id)),
     conversation: studentProcedure.input(z.object({ conversationId: z.number().int().positive() })).query(({ ctx, input }) => getConversationQuestions(input.conversationId, ctx.user.id)),
-    ask: studentProcedure.input(z.object({ question: z.string().trim().min(3).max(2000), subjectId: z.number().int().positive().optional(), conversationId: z.number().int().positive().optional() })).mutation(async ({ ctx, input }) => {
+    ask: studentProcedure.input(z.object({ question: z.string().trim().min(3).max(2000), subjectId: z.number().int().positive().optional(), groupId: z.number().int().positive().optional(), conversationId: z.number().int().positive().optional() })).mutation(async ({ ctx, input }) => {
       enforceAiRateLimit(ctx.user.id);
-      const chunks = await getAuthorizedChunks(ctx.user.id, input.subjectId);
+      if (input.groupId) {
+        const isMember = await isUserInStudyGroup(input.groupId, ctx.user.id);
+        if (!isMember) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this study group." });
+        }
+      }
+      const chunks = input.groupId
+        ? await getAuthorizedChunksForGroup(input.groupId)
+        : await getAuthorizedChunks(ctx.user.id, input.subjectId);
       const rankedCandidates = rankChunks(chunks, input.question);
       const sourceNoteIds = Array.from(new Set(rankedCandidates.map(chunk => chunk.noteId)));
       const sourceNotes = await getNotesByIds(sourceNoteIds);

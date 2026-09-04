@@ -1,7 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
+import fs from "fs";
+import path from "path";
 import { ENV } from "./_core/env";
 
 let _supabaseClient: ReturnType<typeof createClient> | null = null;
+const LOCAL_STORAGE_DIR = path.resolve(process.cwd(), ".storage");
+
+function ensureLocalStorageDir() {
+  if (!fs.existsSync(LOCAL_STORAGE_DIR)) {
+    fs.mkdirSync(LOCAL_STORAGE_DIR, { recursive: true });
+  }
+}
 
 function getSupabase() {
   if (
@@ -18,13 +27,6 @@ function getSupabase() {
     );
   }
   return _supabaseClient;
-}
-
-function getForgeConfig() {
-  const forgeUrl = ENV.forgeApiUrl;
-  const forgeKey = ENV.forgeApiKey;
-  if (!forgeUrl || !forgeKey) return null;
-  return { forgeUrl: forgeUrl.replace(/\/+$/, ""), forgeKey };
 }
 
 function normalizeKey(relKey: string): string {
@@ -45,15 +47,14 @@ export async function storagePut(
 ): Promise<{ key: string; url: string }> {
   const key = appendHashSuffix(normalizeKey(relKey));
   const supabase = getSupabase();
+  const buffer = Buffer.isBuffer(data)
+    ? data
+    : typeof data === "string"
+      ? Buffer.from(data)
+      : Buffer.from(data as Uint8Array);
 
   // 1. Primary: Supabase Storage
   if (supabase) {
-    const buffer = Buffer.isBuffer(data)
-      ? data
-      : typeof data === "string"
-        ? Buffer.from(data)
-        : Buffer.from(data as Uint8Array);
-
     const { error } = await supabase.storage
       .from(ENV.supabaseStorageBucket)
       .upload(key, buffer, {
@@ -62,7 +63,7 @@ export async function storagePut(
       });
 
     if (error) {
-      console.warn(`[Storage] Supabase upload failed: ${error.message}`);
+      console.warn(`[Storage] Supabase upload failed: ${error.message}, falling back to local storage`);
     } else {
       const {
         data: { publicUrl },
@@ -71,39 +72,16 @@ export async function storagePut(
     }
   }
 
-  // 2. Secondary: Forge Storage
-  const forge = getForgeConfig();
-  if (forge) {
-    const presignUrl = new URL("v1/storage/presign/put", forge.forgeUrl + "/");
-    presignUrl.searchParams.set("path", key);
-
-    const presignResp = await fetch(presignUrl, {
-      headers: { Authorization: `Bearer ${forge.forgeKey}` },
-    });
-
-    if (presignResp.ok) {
-      const { url: s3Url } = (await presignResp.json()) as { url: string };
-      if (s3Url) {
-        const blob =
-          typeof data === "string"
-            ? new Blob([data], { type: contentType })
-            : new Blob([data as any], { type: contentType });
-
-        const uploadResp = await fetch(s3Url, {
-          method: "PUT",
-          headers: { "Content-Type": contentType },
-          body: blob,
-        });
-
-        if (uploadResp.ok) {
-          return { key, url: `/manus-storage/${key}` };
-        }
-      }
-    }
+  // 2. Local File System Fallback (Works offline & during local development)
+  try {
+    ensureLocalStorageDir();
+    const filePath = path.join(LOCAL_STORAGE_DIR, key.replace(/\//g, "_"));
+    fs.writeFileSync(filePath, buffer);
+    return { key, url: `/storage/${key.replace(/\//g, "_")}` };
+  } catch (err) {
+    console.error("[Storage] Local write failed:", err);
+    return { key, url: `/storage/${key}` };
   }
-
-  // 3. Fallback for local mock/dev
-  return { key, url: `/storage/${key}` };
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
@@ -115,7 +93,7 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
     } = supabase.storage.from(ENV.supabaseStorageBucket).getPublicUrl(key);
     return { key, url: publicUrl };
   }
-  return { key, url: `/storage/${key}` };
+  return { key, url: `/storage/${key.replace(/\//g, "_")}` };
 }
 
 export async function storageGetSignedUrl(relKey: string): Promise<string> {
@@ -135,20 +113,5 @@ export async function storageGetSignedUrl(relKey: string): Promise<string> {
     return publicUrl;
   }
 
-  const forge = getForgeConfig();
-  if (forge) {
-    const getUrl = new URL("v1/storage/presign/get", forge.forgeUrl + "/");
-    getUrl.searchParams.set("path", key);
-
-    const resp = await fetch(getUrl, {
-      headers: { Authorization: `Bearer ${forge.forgeKey}` },
-    });
-
-    if (resp.ok) {
-      const { url } = (await resp.json()) as { url: string };
-      if (url) return url;
-    }
-  }
-
-  return `/storage/${key}`;
+  return `/storage/${key.replace(/\//g, "_")}`;
 }

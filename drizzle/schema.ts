@@ -25,6 +25,8 @@ export const teacherResourceStatusEnum = pgEnum("teacher_resource_status", [
   "published",
   "unpublished",
 ]);
+export const groupTypeEnum = pgEnum("group_type", ["class", "study_circle"]);
+export const groupRoleEnum = pgEnum("group_role", ["owner", "admin", "member"]);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -189,9 +191,40 @@ export const auditEvents = pgTable("auditEvents", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const studyGroups = pgTable("study_groups", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  code: varchar("code", { length: 16 }).notNull().unique(),
+  description: text("description"),
+  type: groupTypeEnum("type").default("study_circle").notNull(),
+  subjectId: integer("subjectId"),
+  ownerId: integer("ownerId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const studyGroupMembers = pgTable("study_group_members", {
+  id: serial("id").primaryKey(),
+  groupId: integer("groupId").notNull(),
+  userId: integer("userId").notNull(),
+  role: groupRoleEnum("role").default("member").notNull(),
+  joinedAt: timestamp("joinedAt").defaultNow().notNull(),
+});
+
+export const studyGroupNotes = pgTable("study_group_notes", {
+  id: serial("id").primaryKey(),
+  groupId: integer("groupId").notNull(),
+  noteId: integer("noteId").notNull(),
+  sharedByUserId: integer("sharedByUserId").notNull(),
+  sharedAt: timestamp("sharedAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Subject = typeof subjects.$inferSelect;
 export type Note = typeof notes.$inferSelect;
 export type TeacherResource = typeof teacherResources.$inferSelect;
 export type AiQuestion = typeof aiQuestions.$inferSelect;
+export type StudyGroup = typeof studyGroups.$inferSelect;
+export type StudyGroupMember = typeof studyGroupMembers.$inferSelect;
+export type StudyGroupNote = typeof studyGroupNotes.$inferSelect;

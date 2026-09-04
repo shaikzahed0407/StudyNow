@@ -13,6 +13,7 @@ import Ask from "./pages/Ask";
 import Teacher from "./pages/Teacher";
 import Admin from "./pages/Admin";
 import AdminClasses from "./pages/AdminClasses";
+import StudyGroups from "./pages/StudyGroups";
 
 function WorkspaceRoute({ children }: { children: React.ReactNode }) {
   return <DashboardLayout>{children}</DashboardLayout>;
@@ -24,6 +25,7 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/dashboard"><WorkspaceRoute><Dashboard /></WorkspaceRoute></Route>
       <Route path="/notes"><WorkspaceRoute><Notes /></WorkspaceRoute></Route>
+      <Route path="/groups"><WorkspaceRoute><StudyGroups /></WorkspaceRoute></Route>
       <Route path="/resources"><WorkspaceRoute><Resources /></WorkspaceRoute></Route>
       <Route path="/ask"><WorkspaceRoute><Ask /></WorkspaceRoute></Route>
       <Route path="/teacher"><WorkspaceRoute><Teacher /></WorkspaceRoute></Route>

@@ -1,135 +1,26 @@
-import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS, decodeOAuthState } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
-import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
-import { decodeJwt, jwtVerify, SignJWT } from "jose";
+import { jwtVerify, SignJWT } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
-import type {
-  ExchangeTokenRequest,
-  ExchangeTokenResponse,
-  GetUserInfoResponse,
-  GetUserInfoWithJwtRequest,
-  GetUserInfoWithJwtResponse,
-} from "./types/manusTypes";
+import { createClient } from "@supabase/supabase-js";
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
 
 export type SessionPayload = {
   openId: string;
-  appId: string;
+  appId?: string;
   name: string;
   email?: string | null;
 };
 
-const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
-const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
-const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
-
-class OAuthService {
-  constructor(private client: ReturnType<typeof axios.create>) {
-    if (ENV.oAuthServerUrl) {
-      console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    }
-  }
-
-  private decodeState(state: string): string {
-    return decodeOAuthState(state).redirectUri;
-  }
-
-  async getTokenByCode(
-    code: string,
-    state: string,
-  ): Promise<ExchangeTokenResponse> {
-    const payload: ExchangeTokenRequest = {
-      clientId: ENV.appId,
-      grantType: "authorization_code",
-      code,
-      redirectUri: this.decodeState(state),
-    };
-
-    const { data } = await this.client.post<ExchangeTokenResponse>(
-      EXCHANGE_TOKEN_PATH,
-      payload,
-    );
-
-    return data;
-  }
-
-  async getUserInfoByToken(
-    token: ExchangeTokenResponse,
-  ): Promise<GetUserInfoResponse> {
-    const { data } = await this.client.post<GetUserInfoResponse>(
-      GET_USER_INFO_PATH,
-      {
-        accessToken: token.accessToken,
-      },
-    );
-
-    return data;
-  }
-}
-
-const createOAuthHttpClient = (): AxiosInstance =>
-  axios.create({
-    baseURL: ENV.oAuthServerUrl || "https://auth.manus.im",
-    timeout: AXIOS_TIMEOUT_MS,
-  });
-
 class SDKServer {
-  private readonly client: AxiosInstance;
-  private readonly oauthService: OAuthService;
-
-  constructor(client: AxiosInstance = createOAuthHttpClient()) {
-    this.client = client;
-    this.oauthService = new OAuthService(this.client);
-  }
-
-  private deriveLoginMethod(
-    platforms: unknown,
-    fallback: string | null | undefined,
-  ): string | null {
-    if (fallback && fallback.length > 0) return fallback;
-    if (!Array.isArray(platforms) || platforms.length === 0) return null;
-    const set = new Set<string>(
-      platforms.filter((p): p is string => typeof p === "string"),
-    );
-    if (set.has("REGISTERED_PLATFORM_EMAIL")) return "email";
-    if (set.has("REGISTERED_PLATFORM_GOOGLE")) return "google";
-    if (set.has("REGISTERED_PLATFORM_APPLE")) return "apple";
-    if (
-      set.has("REGISTERED_PLATFORM_MICROSOFT") ||
-      set.has("REGISTERED_PLATFORM_AZURE")
-    )
-      return "microsoft";
-    if (set.has("REGISTERED_PLATFORM_GITHUB")) return "github";
-    const first = Array.from(set)[0];
-    return first ? first.toLowerCase() : null;
-  }
-
-  async exchangeCodeForToken(
-    code: string,
-    state: string,
-  ): Promise<ExchangeTokenResponse> {
-    return this.oauthService.getTokenByCode(code, state);
-  }
-
-  async getUserInfo(accessToken: string): Promise<GetUserInfoResponse> {
-    const data = await this.oauthService.getUserInfoByToken({
-      accessToken,
-    } as ExchangeTokenResponse);
-    const loginMethod = this.deriveLoginMethod(
-      (data as any)?.platforms,
-      (data as any)?.platform ?? data.platform ?? null,
-    );
-    return {
-      ...(data as any),
-      platform: loginMethod,
-      loginMethod,
-    } as GetUserInfoResponse;
+  private getSessionSecret() {
+    return new TextEncoder().encode(ENV.cookieSecret);
   }
 
   private parseCookies(cookieHeader: string | undefined) {
@@ -140,11 +31,6 @@ class SDKServer {
     return new Map(Object.entries(parsed));
   }
 
-  private getSessionSecret() {
-    const secret = ENV.cookieSecret || "studynow-session-secret-key-development";
-    return new TextEncoder().encode(secret);
-  }
-
   async createSessionToken(
     openId: string,
     options: { expiresInMs?: number; name?: string; email?: string } = {},
@@ -152,8 +38,8 @@ class SDKServer {
     return this.signSession(
       {
         openId,
-        appId: ENV.appId || "studynow",
-        name: options.name || "",
+        appId: "studynow",
+        name: options.name || "Student",
         email: options.email || null,
       },
       options,
@@ -171,7 +57,7 @@ class SDKServer {
 
     return new SignJWT({
       openId: payload.openId,
-      appId: payload.appId,
+      appId: payload.appId || "studynow",
       name: payload.name,
       email: payload.email,
     })
@@ -182,12 +68,18 @@ class SDKServer {
 
   async verifySession(
     tokenValue: string | undefined | null,
-  ): Promise<{ openId: string; appId: string; name: string; email?: string } | null> {
+  ): Promise<{
+    openId: string;
+    appId: string;
+    name: string;
+    email?: string;
+    role?: "student" | "teacher" | "admin" | "user";
+  } | null> {
     if (!tokenValue) {
       return null;
     }
 
-    // 1. Try local HMAC verification
+    // 1. Try local HMAC verification with app cookie secret
     try {
       const secretKey = this.getSessionSecret();
       const { payload } = await jwtVerify(tokenValue, secretKey, {
@@ -204,58 +96,53 @@ class SDKServer {
         };
       }
     } catch {
-      // Not signed with local secret; check if it's a Supabase Auth token
+      // Not signed with local secret; check if it's a valid Supabase Auth session token
     }
 
-    // 2. Try decoding as Supabase / standard JWT token
-    try {
-      const claims = decodeJwt(tokenValue);
-      if (claims && isNonEmptyString(claims.sub)) {
-        const metadata = (claims.user_metadata as Record<string, unknown>) || {};
-        const name =
-          (typeof metadata.name === "string" && metadata.name) ||
-          (typeof metadata.full_name === "string" && metadata.full_name) ||
-          (typeof claims.email === "string" && claims.email.split("@")[0]) ||
-          "Student";
-        return {
-          openId: claims.sub,
-          appId: "supabase",
-          name,
-          email: typeof claims.email === "string" ? claims.email : undefined,
-        };
+    // 2. Cryptographic Supabase Auth verification via Supabase client
+    if (ENV.supabaseUrl && (ENV.supabaseAnonKey || ENV.supabaseServiceRoleKey)) {
+      try {
+        const supabase = createClient(
+          ENV.supabaseUrl,
+          ENV.supabaseServiceRoleKey || ENV.supabaseAnonKey,
+          { auth: { persistSession: false } },
+        );
+        const { data, error } = await supabase.auth.getUser(tokenValue);
+        if (!error && data?.user && isNonEmptyString(data.user.id)) {
+          const user = data.user;
+          const meta = user.user_metadata || {};
+          const name =
+            (typeof meta.name === "string" && meta.name) ||
+            (typeof meta.full_name === "string" && meta.full_name) ||
+            (typeof user.email === "string" && user.email.split("@")[0]) ||
+            "Student";
+
+          const provider = user.app_metadata?.provider || "email";
+          const openId = provider === "google" ? `google_${user.id}` : `supabase_${user.id}`;
+          const role =
+            meta.role === "teacher"
+              ? "teacher"
+              : meta.role === "admin"
+                ? "admin"
+                : "student";
+
+          return {
+            openId,
+            appId: "supabase",
+            name,
+            email: user.email,
+            role,
+          };
+        }
+      } catch (err) {
+        console.warn("[Auth] Supabase verification failed:", String(err));
       }
-    } catch (err) {
-      console.warn("[Auth] Token decode failed", String(err));
     }
 
     return null;
   }
 
-  async getUserInfoWithJwt(
-    jwtToken: string,
-  ): Promise<GetUserInfoWithJwtResponse> {
-    const payload: GetUserInfoWithJwtRequest = {
-      jwtToken,
-      projectId: ENV.appId,
-    };
-
-    const { data } = await this.client.post<GetUserInfoWithJwtResponse>(
-      GET_USER_INFO_WITH_JWT_PATH,
-      payload,
-    );
-
-    const loginMethod = this.deriveLoginMethod(
-      (data as any)?.platforms,
-      (data as any)?.platform ?? data.platform ?? null,
-    );
-    return {
-      ...(data as any),
-      platform: loginMethod,
-      loginMethod,
-    } as GetUserInfoWithJwtResponse;
-  }
-
-  async authenticateRequest(req: Request): Promise<AuthenticatedUser> {
+  async authenticateRequest(req: Request): Promise<User> {
     const cookies = this.parseCookies(req.headers.cookie);
     let sessionToken = cookies.get(COOKIE_NAME);
 
@@ -269,16 +156,7 @@ class SDKServer {
     const session = await this.verifySession(sessionToken);
 
     if (!session) {
-      throw ForbiddenError("Invalid session token");
-    }
-
-    if (session.openId.startsWith(CRON_OPEN_ID_PREFIX)) {
-      const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
-      const taskUid = userInfo.taskUid ?? null;
-      if (!taskUid) {
-        throw ForbiddenError("Cron session missing task_uid");
-      }
-      return buildCronUser(userInfo);
+      throw ForbiddenError("Invalid or expired session");
     }
 
     const sessionUserId = session.openId;
@@ -286,12 +164,13 @@ class SDKServer {
     let user = await db.getUserByOpenId(sessionUserId);
 
     if (!user) {
-      // Auto-provision user from verified session metadata
+      // Auto-provision user from verified session metadata (e.g. Google OAuth or Supabase email login)
       await db.upsertUser({
         openId: session.openId,
         name: session.name || "Student",
         email: session.email || null,
-        loginMethod: "jwt",
+        role: session.role || "student",
+        loginMethod: session.appId === "supabase" ? "supabase" : "local",
         lastSignedIn: signedInAt,
       });
       user = await db.getUserByOpenId(session.openId);
@@ -308,32 +187,6 @@ class SDKServer {
 
     return user;
   }
-}
-
-const CRON_OPEN_ID_PREFIX = "cron_";
-
-export type AuthenticatedUser = User & {
-  taskUid?: string;
-  isCron?: boolean;
-};
-
-function buildCronUser(
-  userInfo: GetUserInfoWithJwtResponse,
-): AuthenticatedUser {
-  const now = new Date();
-  return {
-    id: -1,
-    openId: userInfo.openId,
-    name: userInfo.name || "Scheduled Task",
-    email: null,
-    loginMethod: null,
-    role: "user",
-    createdAt: now,
-    updatedAt: now,
-    lastSignedIn: now,
-    taskUid: userInfo.taskUid ?? undefined,
-    isCron: true,
-  } as AuthenticatedUser;
 }
 
 export const sdk = new SDKServer();

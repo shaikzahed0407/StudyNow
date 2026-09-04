@@ -227,7 +227,7 @@ async function invokeGemini(params: InvokeParams): Promise<InvokeResult> {
     }
   }
 
-  // Model selection: fallback to Gemini 2.5 Flash if OpenAI model was requested
+  // Model selection: fallback to Gemini 3.7 Flash
   let targetModel = params.model || ENV.geminiModel || "gemini-3.7-flash";
   if (!targetModel.startsWith("gemini-") && !targetModel.startsWith("gemma-")) {
     targetModel = "gemini-3.7-flash";
@@ -330,40 +330,10 @@ const fetchWithBackoff = async (url: string, init: FetchInit): Promise<Response>
 };
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  if (ENV.geminiApiKey) {
-    return invokeGemini(params);
+  if (!ENV.geminiApiKey) {
+    throw new Error("GEMINI_API_KEY is not configured in environment variables");
   }
-
-  if (!ENV.forgeApiKey) {
-    throw new Error("Neither GEMINI_API_KEY nor BUILT_IN_FORGE_API_KEY is configured");
-  }
-
-  const payload: Record<string, unknown> = {
-    messages: params.messages.map(normalizeMessage),
-  };
-  if (params.model) payload.model = params.model;
-  if (params.tools && params.tools.length > 0) payload.tools = params.tools;
-
-  const url =
-    ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-      ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-      : "https://forge.manus.im/v1/chat/completions";
-
-  const response = await fetchWithBackoff(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`);
-  }
-
-  return (await response.json()) as InvokeResult;
+  return invokeGemini(params);
 }
 
 export type ModelInfo = {
@@ -379,37 +349,13 @@ export type ModelsResponse = {
 };
 
 export async function listLLMModels(): Promise<ModelsResponse> {
-  if (ENV.geminiApiKey) {
-    return {
-      object: "list",
-      data: [
-        { id: "gemini-2.5-flash", object: "model", created: Date.now(), owned_by: "google" },
-        { id: "gemini-2.5-pro", object: "model", created: Date.now(), owned_by: "google" },
-        { id: "gemini-3.7-flash", object: "model", created: Date.now(), owned_by: "google" },
-        { id: "gemini-3.5-flash-lite", object: "model", created: Date.now(), owned_by: "google" },
-      ],
-    };
-  }
-
-  if (ENV.forgeApiKey) {
-    const url =
-      ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-        ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/models`
-        : "https://forge.manus.im/v1/models";
-
-    const response = await fetchWithBackoff(url, {
-      headers: { authorization: `Bearer ${ENV.forgeApiKey}` },
-    });
-
-    if (response.ok) {
-      return (await response.json()) as ModelsResponse;
-    }
-  }
-
   return {
     object: "list",
     data: [
-      { id: "gemini-2.5-flash", object: "model", created: Date.now(), owned_by: "google" },
+      { id: "gemini-3.7-flash", object: "model", created: Date.now(), owned_by: "google" },
+      { id: "gemini-3.6-flash", object: "model", created: Date.now(), owned_by: "google" },
+      { id: "gemini-2.0-flash", object: "model", created: Date.now(), owned_by: "google" },
     ],
   };
 }
+

@@ -1,5 +1,5 @@
 services:
-  # 1. Main StudyNow Node/React Fullstack App
+  # StudyNow Node/React Fullstack Application
   - type: web
     name: studynow-web
     runtime: node
@@ -9,9 +9,13 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: JWT_SECRET
+        generateValue: true
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
@@ -20,20 +24,4 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
-      - key: JAVA_DOC_SERVICE_URL
-        fromService:
-          type: web
-          name: studynow-java-doc-service
-          property: host
-
-  # 2. Java Spring Boot Document Extraction Service
-  - type: web
-    name: studynow-java-doc-service
-    runtime: docker
-    dockerfilePath: java-doc-service/Dockerfile
-    dockerContext: java-doc-service
-    plan: free
-    envVars:
-      - key: PORT
-        value: 8080
+        value: gemini-2.0-flash

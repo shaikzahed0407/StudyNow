@@ -1,7 +1,7 @@
-import { startLogin } from "@/const";
+import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -9,16 +9,19 @@ type UseAuthOptions = {
 };
 
 export function useAuth(options?: UseAuthOptions) {
-  // Login is started via startLogin() in the effect below, only when we actually
-  // navigate — never during render. startLogin() mints a one-time nonce + writes
-  // the state cookie, so calling it per render would overwrite the cookie and
-  // desync it from an in-flight login's `state`.
-  const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
+  const { redirectOnUnauthenticated = false, redirectPath = "/" } = options ?? {};
   const utils = trpc.useUtils();
+  const [oauthChecking, setOauthChecking] = useState<boolean>(() => {
+    if (typeof window !== "undefined" && window.location.hash.includes("access_token=")) {
+      return true;
+    }
+    return false;
+  });
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
     retry: false,
     refetchOnWindowFocus: false,
+    enabled: !oauthChecking,
   });
 
   const logoutMutation = trpc.auth.logout.useMutation({
@@ -27,8 +30,51 @@ export function useAuth(options?: UseAuthOptions) {
     },
   });
 
+  // Handle Supabase OAuth hash and session tokens
+  useEffect(() => {
+    let mounted = true;
+
+    // 1. Direct hash extraction for instantaneous response
+    if (typeof window !== "undefined" && window.location.hash.includes("access_token=")) {
+      try {
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+        const token = hashParams.get("access_token");
+        if (token) {
+          sessionStorage.setItem("studynow-token", token);
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+      } catch {}
+      setOauthChecking(false);
+      utils.auth.me.invalidate();
+    }
+
+    // 2. Supabase auth state listener
+    if (supabase) {
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (!mounted) return;
+        if (session?.access_token) {
+          sessionStorage.setItem("studynow-token", session.access_token);
+          await utils.auth.me.invalidate();
+        }
+        setOauthChecking(false);
+      });
+
+      return () => {
+        mounted = false;
+        subscription.unsubscribe();
+      };
+    } else {
+      setOauthChecking(false);
+    }
+  }, [utils]);
+
   const logout = useCallback(async () => {
     try {
+      if (supabase) {
+        await supabase.auth.signOut().catch(() => {});
+      }
       await logoutMutation.mutateAsync();
     } catch (error: unknown) {
       if (
@@ -39,11 +85,8 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
-      // Clear the Preview auto-login token mirrored into sessionStorage, so
-      // header-based sessions (Safari ITP / WebView) are logged out too. The
-      // backend cookie is cleared by the logout mutation.
       try {
-        sessionStorage.removeItem("manus-cookie");
+        sessionStorage.removeItem("studynow-token");
       } catch {}
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
@@ -51,13 +94,9 @@ export function useAuth(options?: UseAuthOptions) {
   }, [logoutMutation, utils]);
 
   const state = useMemo(() => {
-    localStorage.setItem(
-      "manus-runtime-user-info",
-      JSON.stringify(meQuery.data)
-    );
     return {
       user: meQuery.data ?? null,
-      loading: meQuery.isLoading || logoutMutation.isPending,
+      loading: oauthChecking || meQuery.isLoading || logoutMutation.isPending,
       error: meQuery.error ?? logoutMutation.error ?? null,
       isAuthenticated: Boolean(meQuery.data),
     };
@@ -65,26 +104,23 @@ export function useAuth(options?: UseAuthOptions) {
     meQuery.data,
     meQuery.error,
     meQuery.isLoading,
+    oauthChecking,
     logoutMutation.error,
     logoutMutation.isPending,
   ]);
 
   useEffect(() => {
     if (!redirectOnUnauthenticated) return;
-    if (meQuery.isLoading || logoutMutation.isPending) return;
+    if (oauthChecking || meQuery.isLoading || logoutMutation.isPending) return;
     if (state.user) return;
     if (typeof window === "undefined") return;
     if (redirectPath && window.location.pathname === redirectPath) return;
 
-    // Navigate at this moment only. startLogin() mints the nonce + cookie itself.
-    if (redirectPath) {
-      window.location.href = redirectPath;
-    } else {
-      startLogin();
-    }
+    window.location.href = redirectPath;
   }, [
     redirectOnUnauthenticated,
     redirectPath,
+    oauthChecking,
     logoutMutation.isPending,
     meQuery.isLoading,
     state.user,
