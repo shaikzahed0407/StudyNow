@@ -4,7 +4,7 @@ services:
     name: studynow-web
     runtime: node
     plan: free
-    buildCommand: pnpm install && pnpm run build
+    buildCommand: pnpm install --no-frozen-lockfile && pnpm run build
     startCommand: pnpm start
     envVars:
       - key: NODE_ENV
@@ -16,6 +16,10 @@ services:
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
