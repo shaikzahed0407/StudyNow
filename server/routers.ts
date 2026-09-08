@@ -498,7 +498,8 @@ export const appRouter = router({
         const sessionToken = await sdk.createSessionToken(openId, {
           name: defaultName,
           email: input.email,
-          accounts: [...existingAccounts, openId],
+          // Deduplicate to prevent repeated logins accumulating duplicate openId entries
+          accounts: Array.from(new Set([...existingAccounts, openId])),
           expiresInMs: ONE_YEAR_MS,
         });
 
@@ -836,11 +837,6 @@ export const appRouter = router({
     discover: workspaceProcedure
       .input(z.object({ search: z.string().max(100).optional() }).optional())
       .query(({ ctx, input }) => discoverPublicGroups(input?.search, ctx.user.id)),
-    join: workspaceProcedure
-      .input(z.object({ code: z.string().trim().min(1).max(20) }))
-      .mutation(async ({ ctx, input }) => {
-        return joinStudyGroupByCode(input.code, ctx.user.id);
-      }),
     joinByCode: workspaceProcedure
       .input(z.object({ code: z.string().trim().min(1).max(20) }))
       .mutation(async ({ ctx, input }) => {

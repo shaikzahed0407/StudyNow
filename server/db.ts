@@ -128,7 +128,10 @@ export async function upsertUser(user: InsertUser): Promise<void> {
         email: user.email ?? existing[0].email,
         role: user.role ?? existing[0].role,
         status: user.status ?? existing[0].status,
-        teacherApproval: user.teacherApproval ?? existing[0].teacherApproval,
+        // Preserve admin-granted approval decisions — never reset on re-login.
+        // The login payload always passes a default value (e.g. "pending" for teachers),
+        // which must not overwrite an admin's "approved" or "rejected" decision.
+        teacherApproval: existing[0].teacherApproval,
         avatarUrl: user.avatarUrl ?? existing[0].avatarUrl,
         bio: user.bio ?? existing[0].bio,
         externalLinks: user.externalLinks ?? existing[0].externalLinks,

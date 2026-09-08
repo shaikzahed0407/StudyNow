@@ -27,6 +27,8 @@ export async function backfillMissingEmbeddings(
     const chunks = await getChunksWithoutEmbeddings(batchSize);
     if (!chunks.length) break;
 
+    let batchSucceeded = 0;
+
     for (const chunk of chunks) {
       processed++;
       try {
@@ -34,6 +36,7 @@ export async function backfillMissingEmbeddings(
         if (embedding) {
           await updateChunkEmbedding(chunk.id, embedding);
           succeeded++;
+          batchSucceeded++;
         } else {
           failed++;
         }
@@ -41,6 +44,13 @@ export async function backfillMissingEmbeddings(
         console.warn(`[Backfill] Failed to embed chunk ${chunk.id}:`, err);
         failed++;
       }
+    }
+
+    // If none of the chunks in this batch succeeded (e.g. API is unavailable),
+    // break to avoid an infinite loop retrying permanently-failing chunks.
+    if (batchSucceeded === 0) {
+      console.warn(`[Backfill] No embeddings succeeded in this batch — stopping to avoid infinite retry.`);
+      break;
     }
 
     // Rate-limit pause between batches
