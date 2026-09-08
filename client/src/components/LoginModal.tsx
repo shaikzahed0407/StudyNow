@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  ArrowLeft,
   ArrowRight,
   BookOpen,
   GraduationCap,
@@ -28,11 +29,18 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 
 interface LoginModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  isEmbedded?: boolean;
+  showBackButton?: boolean;
 }
 
-export function LoginModal({ open, onOpenChange }: LoginModalProps) {
+export function LoginModal({
+  open = false,
+  onOpenChange,
+  isEmbedded = false,
+  showBackButton = true,
+}: LoginModalProps) {
   const utils = trpc.useUtils();
 
   // Active main tab: "account" (Supabase Auth) vs "demo" (1-Click Local Demo)
@@ -54,7 +62,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
   const [demoName, setDemoName] = useState("");
   const [demoEmail, setDemoEmail] = useState("");
 
-  const logoutMutation = trpc.auth.logout.useMutation();
+  const exchangeSupabaseMutation = trpc.auth.exchangeSupabase.useMutation();
 
   const demoLoginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data) => {
@@ -65,8 +73,9 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
       }
       utils.auth.me.setData(undefined, data.user as any);
       await utils.auth.me.invalidate();
+      await utils.auth.listAccounts.invalidate();
       toast.success(`Welcome to StudyNow, ${data.user?.name || "Student"}!`);
-      onOpenChange(false);
+      onOpenChange?.(false);
       window.location.href = "/dashboard";
     },
     onError: (err) => {
@@ -122,10 +131,21 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
         }
 
         if (data.session?.access_token) {
-          sessionStorage.setItem("studynow-token", data.session.access_token);
+          try {
+            const res = await exchangeSupabaseMutation.mutateAsync({
+              supabaseToken: data.session.access_token,
+            });
+            if (res?.token) {
+              sessionStorage.setItem("studynow-token", res.token);
+              utils.auth.me.setData(undefined, res.user as any);
+            }
+          } catch {
+            sessionStorage.setItem("studynow-token", data.session.access_token);
+          }
           await utils.auth.me.invalidate();
+          await utils.auth.listAccounts.invalidate();
           toast.success("Signed in successfully!");
-          onOpenChange(false);
+          onOpenChange?.(false);
           window.location.href = "/dashboard";
         }
       } else {
@@ -147,11 +167,21 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
         }
 
         if (data.session?.access_token) {
-          // Instant session (confirm email turned off in Supabase)
-          sessionStorage.setItem("studynow-token", data.session.access_token);
+          try {
+            const res = await exchangeSupabaseMutation.mutateAsync({
+              supabaseToken: data.session.access_token,
+            });
+            if (res?.token) {
+              sessionStorage.setItem("studynow-token", res.token);
+              utils.auth.me.setData(undefined, res.user as any);
+            }
+          } catch {
+            sessionStorage.setItem("studynow-token", data.session.access_token);
+          }
           await utils.auth.me.invalidate();
+          await utils.auth.listAccounts.invalidate();
           toast.success("Account created successfully! Welcome to StudyNow.");
-          onOpenChange(false);
+          onOpenChange?.(false);
           window.location.href = "/dashboard";
         } else if (data.user) {
           // Confirmation email sent
@@ -180,10 +210,6 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
 
     try {
       setIsGoogleLoading(true);
-      try {
-        sessionStorage.removeItem("studynow-token");
-      } catch {}
-      await logoutMutation.mutateAsync().catch(() => {});
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -202,26 +228,42 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md rounded-2xl p-6 sm:p-8 max-h-[90vh] overflow-y-auto">
-        <DialogHeader className="text-left">
-          <div className="mb-2 flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lift">
+  const formContent = (
+    <>
+      <div className="text-left mb-3">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lift">
             <BookOpen className="size-6" />
           </div>
-          <DialogTitle className="font-display text-2xl font-black tracking-tight">
-            Enter StudyNow
-          </DialogTitle>
-          <DialogDescription className="text-muted-foreground">
-            Sign in with your email account, Google, or use an instant demo role.
-          </DialogDescription>
-        </DialogHeader>
+          {showBackButton && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                window.location.href = "/";
+              }}
+              className="h-8 px-2.5 rounded-xl text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-xs font-semibold border border-border/60 hover:bg-muted transition-colors"
+              title="Back to introduction page"
+            >
+              <ArrowLeft className="size-3.5" />
+              <span>Back</span>
+            </Button>
+          )}
+        </div>
+        <h2 className="font-display text-2xl font-black tracking-tight text-foreground">
+          Enter StudyNow
+        </h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Sign in with your email account, Google, or use an instant demo role.
+        </p>
+      </div>
 
-        <Tabs
-          value={activeTab}
-          onValueChange={(val) => setActiveTab(val as "account" | "demo")}
-          className="mt-3 w-full"
-        >
+      <Tabs
+        value={activeTab}
+        onValueChange={(val) => setActiveTab(val as "account" | "demo")}
+        className="mt-3 w-full"
+      >
           <TabsList className="grid w-full grid-cols-2 rounded-xl h-10 p-1 bg-muted/60">
             <TabsTrigger
               value="account"
@@ -519,6 +561,25 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
             </form>
           </TabsContent>
         </Tabs>
+    </>
+  );
+
+  if (isEmbedded) {
+    return (
+      <div className="w-full max-w-md rounded-3xl border border-border/70 bg-card p-6 sm:p-8 shadow-soft">
+        {formContent}
+      </div>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md rounded-2xl p-6 sm:p-8 max-h-[90vh] overflow-y-auto">
+        <DialogTitle className="sr-only">Enter StudyNow</DialogTitle>
+        <DialogDescription className="sr-only">
+          Sign in with your email account, Google, or use an instant demo role.
+        </DialogDescription>
+        {formContent}
       </DialogContent>
     </Dialog>
   );

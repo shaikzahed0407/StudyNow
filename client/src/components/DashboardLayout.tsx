@@ -57,7 +57,6 @@ import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { LoginModal } from "./LoginModal";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [loginOpen, setLoginOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("studynow-sidebar-width");
     return saved ? parseInt(saved, 10) : 270;
@@ -71,20 +70,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) {
     return (
-      <div className="min-h-screen grid place-items-center bg-background px-6">
-        <LoginModal open={loginOpen} onOpenChange={setLoginOpen} />
-        <div className="max-w-md rounded-3xl border border-border/70 bg-card p-10 text-center shadow-soft">
-          <div className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-lift">
-            <BookOpen className="size-6" />
-          </div>
-          <h1 className="font-display text-2xl font-extrabold tracking-tight">Your notes, in reach.</h1>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            Sign in to enter your StudyNow personal workspace and study groups.
-          </p>
-          <Button className="mt-7 w-full rounded-xl font-bold shadow-lift" onClick={() => setLoginOpen(true)}>
-            Sign in to StudyNow
-          </Button>
-        </div>
+      <div className="min-h-screen grid place-items-center bg-background px-4 py-8">
+        <LoginModal isEmbedded showBackButton />
       </div>
     );
   }
@@ -224,11 +211,11 @@ function DashboardLayoutContent({
 
       <div ref={sidebarRef} className="relative">
         <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-sidebar/90">
-          <SidebarHeader className="h-[76px] justify-center border-b border-sidebar-border/70 px-3">
-            <div className="flex items-center gap-3">
+          <SidebarHeader className={`h-[76px] justify-center border-b border-sidebar-border/70 ${isCollapsed ? "px-0 items-center" : "px-3"}`}>
+            <div className={`flex items-center ${isCollapsed ? "justify-center w-full" : "gap-3"}`}>
               <button
                 onClick={toggleSidebar}
-                className="grid size-9 shrink-0 place-items-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-lift focus-visible:ring-2 focus-visible:ring-ring"
+                className={`grid ${isCollapsed ? "size-8" : "size-9"} shrink-0 place-items-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-lift focus-visible:ring-2 focus-visible:ring-ring`}
                 aria-label="Toggle navigation"
               >
                 <PanelLeft className="size-4" />
@@ -280,14 +267,16 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           {/* Sidebar Footer: Discord-Style Multi-Account Switcher */}
-          <SidebarFooter className="border-t border-sidebar-border/70 p-3">
+          <SidebarFooter className={`border-t border-sidebar-border/70 ${isCollapsed ? "p-1.5 justify-center items-center" : "p-3"}`}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring group"
+                  className={`flex w-full items-center rounded-xl transition hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring group ${
+                    isCollapsed ? "justify-center p-1" : "gap-3 p-2 text-left"
+                  }`}
                   aria-label="Account options"
                 >
-                  <Avatar className="size-9 border border-sidebar-border">
+                  <Avatar className={`${isCollapsed ? "size-8" : "size-9"} border border-sidebar-border shrink-0`}>
                     {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.name || "Avatar"} />}
                     <AvatarFallback className="bg-primary/10 text-xs font-bold text-primary">
                       {user.name?.slice(0, 1).toUpperCase() || "S"}
@@ -379,14 +368,6 @@ function DashboardLayoutContent({
                 >
                   <Plus className="size-4 text-muted-foreground" />
                   <span>Add another account</span>
-                </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  className="gap-2.5 rounded-xl cursor-pointer py-2 font-medium"
-                  onClick={() => setLocation("/profile")}
-                >
-                  <User className="size-4 text-muted-foreground" />
-                  <span>Profile & Preferences</span>
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />

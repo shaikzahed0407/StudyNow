@@ -55,7 +55,22 @@ class AiRelationalFixture {
 
 function contextForStudent(): TrpcContext {
   return {
-    user: { id: 42, openId: "ai-scope-student", name: "Scope Student", email: "scope@example.com", loginMethod: "test", role: "student", status: "active", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+    user: {
+      id: 42,
+      openId: "ai-scope-student",
+      name: "Scope Student",
+      email: "scope@example.com",
+      avatarUrl: null,
+      bio: null,
+      externalLinks: null,
+      loginMethod: "test",
+      role: "student",
+      status: "active",
+      teacherApproval: "approved",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    },
     req: { protocol: "https", headers: {} } as TrpcContext["req"],
     res: {} as TrpcContext["res"],
   };

@@ -35,6 +35,8 @@ export function useAuth(options?: UseAuthOptions) {
     },
   });
 
+  const exchangeSupabaseMutation = trpc.auth.exchangeSupabase.useMutation();
+
   // Handle Supabase OAuth hash and session tokens
   useEffect(() => {
     let mounted = true;
@@ -45,27 +47,57 @@ export function useAuth(options?: UseAuthOptions) {
         const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
         const token = hashParams.get("access_token");
         if (token) {
-          sessionStorage.setItem("studynow-token", token);
           window.history.replaceState(null, "", window.location.pathname + window.location.search);
+          exchangeSupabaseMutation
+            .mutateAsync({ supabaseToken: token })
+            .then((res) => {
+              if (!mounted) return;
+              if (res?.token) {
+                sessionStorage.setItem("studynow-token", res.token);
+                utils.auth.me.setData(undefined, res.user as any);
+              }
+            })
+            .catch((err) => {
+              console.warn("Failed to exchange Supabase OAuth token:", err);
+            })
+            .finally(() => {
+              if (mounted) {
+                setOauthChecking(false);
+                utils.auth.me.invalidate();
+                utils.auth.listAccounts.invalidate();
+              }
+            });
+          return;
         }
       } catch {}
       setOauthChecking(false);
-      utils.auth.me.invalidate();
     }
 
     // 2. Supabase auth session retrieval & state listener
     if (supabase) {
-      // Check existing session persisted by Supabase in localStorage
+      // Check existing session persisted by Supabase in localStorage only if no active StudyNow session
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (!mounted) return;
-        if (session?.access_token) {
-          const currentToken = sessionStorage.getItem("studynow-token");
-          if (currentToken !== session.access_token) {
-            sessionStorage.setItem("studynow-token", session.access_token);
-            utils.auth.me.invalidate();
-          }
+        const currentToken = sessionStorage.getItem("studynow-token");
+        if (session?.access_token && !currentToken) {
+          exchangeSupabaseMutation
+            .mutateAsync({ supabaseToken: session.access_token })
+            .then((res) => {
+              if (!mounted) return;
+              if (res?.token) {
+                sessionStorage.setItem("studynow-token", res.token);
+                utils.auth.me.setData(undefined, res.user as any);
+                utils.auth.me.invalidate();
+                utils.auth.listAccounts.invalidate();
+              }
+            })
+            .catch(() => {})
+            .finally(() => {
+              if (mounted) setOauthChecking(false);
+            });
+        } else {
+          setOauthChecking(false);
         }
-        setOauthChecking(false);
       }).catch(() => {
         if (mounted) setOauthChecking(false);
       });
@@ -74,9 +106,17 @@ export function useAuth(options?: UseAuthOptions) {
         data: { subscription },
       } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (!mounted) return;
-        if (session?.access_token) {
-          sessionStorage.setItem("studynow-token", session.access_token);
-          await utils.auth.me.invalidate();
+        const currentToken = sessionStorage.getItem("studynow-token");
+        if (session?.access_token && !currentToken) {
+          try {
+            const res = await exchangeSupabaseMutation.mutateAsync({ supabaseToken: session.access_token });
+            if (res?.token && mounted) {
+              sessionStorage.setItem("studynow-token", res.token);
+              utils.auth.me.setData(undefined, res.user as any);
+              await utils.auth.me.invalidate();
+              await utils.auth.listAccounts.invalidate();
+            }
+          } catch {}
         } else if (event === "SIGNED_OUT") {
           sessionStorage.removeItem("studynow-token");
           utils.auth.me.setData(undefined, null);

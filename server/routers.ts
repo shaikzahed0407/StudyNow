@@ -486,9 +486,8 @@ export const appRouter = router({
           lastSignedIn: new Date(),
         });
 
-        // Retrieve existing session cookie to link accounts if switching/adding
-        const cookies = sdk.parseCookies(ctx.req.headers.cookie);
-        const existingToken = cookies.get(COOKIE_NAME);
+        // Retrieve existing active session (cookie or Bearer header) to link accounts
+        const existingToken = sdk.getActiveToken(ctx.req);
         let existingAccounts: string[] = [];
         if (existingToken) {
           const verified = await sdk.verifySession(existingToken);
@@ -509,14 +508,77 @@ export const appRouter = router({
         const user = await getUserByOpenId(openId);
         return { success: true, user, token: sessionToken };
       }),
+    exchangeSupabase: publicProcedure
+      .input(z.object({ supabaseToken: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const verified = await sdk.verifySession(input.supabaseToken);
+        if (!verified || verified.appId !== "supabase") {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Invalid or expired Supabase authentication session.",
+          });
+        }
+
+        const signedInAt = new Date();
+        let user = await getUserByOpenId(verified.openId);
+        if (!user && verified.email) {
+          user = await getUserByEmail(verified.email);
+        }
+
+        if (!user) {
+          await upsertUser({
+            openId: verified.openId,
+            name: verified.name || "Student",
+            email: verified.email || null,
+            role: verified.role || "student",
+            status: "active",
+            teacherApproval: verified.role === "teacher" ? "pending" : "approved",
+            loginMethod: "supabase",
+            lastSignedIn: signedInAt,
+          });
+          user = await getUserByOpenId(verified.openId);
+        } else {
+          await upsertUser({
+            openId: user.openId,
+            lastSignedIn: signedInAt,
+          });
+        }
+
+        if (!user) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to provision user for Supabase session.",
+          });
+        }
+
+        // Retrieve existing active session to link connected accounts
+        const existingToken = sdk.getActiveToken(ctx.req);
+        let existingAccounts: string[] = [];
+        if (existingToken) {
+          const existingSession = await sdk.verifySession(existingToken);
+          if (existingSession) existingAccounts = existingSession.accounts;
+        }
+
+        const accounts = Array.from(new Set([...existingAccounts, user.openId]));
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name || "Student",
+          email: user.email || undefined,
+          accounts,
+          expiresInMs: ONE_YEAR_MS,
+        });
+
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+        return { success: true, user, token: sessionToken };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
     listAccounts: workspaceProcedure.query(async ({ ctx }) => {
-      const cookies = sdk.parseCookies(ctx.req.headers.cookie);
-      const token = cookies.get(COOKIE_NAME);
+      const token = sdk.getActiveToken(ctx.req);
       const verified = await sdk.verifySession(token);
       const openIds = verified?.accounts || [ctx.user.openId];
 
@@ -526,8 +588,7 @@ export const appRouter = router({
     switchAccount: workspaceProcedure
       .input(z.object({ openId: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
-        const cookies = sdk.parseCookies(ctx.req.headers.cookie);
-        const token = cookies.get(COOKIE_NAME);
+        const token = sdk.getActiveToken(ctx.req);
 
         const switched = await sdk.switchSessionAccount(token, input.openId);
         if (!switched) {

@@ -35,7 +35,22 @@ type Role = "student" | "teacher";
 
 function contextFor(role: Role, id: number): TrpcContext {
   return {
-    user: { id, openId: `security-${id}`, name: "Security Test", email: `${id}@example.com`, loginMethod: "test", role, teacherApproval: "approved", status: "active", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+    user: {
+      id,
+      openId: `security-${id}`,
+      name: "Security Test",
+      email: `${id}@example.com`,
+      avatarUrl: null,
+      bio: null,
+      externalLinks: null,
+      loginMethod: "test",
+      role,
+      teacherApproval: "approved",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    },
     req: { protocol: "https", headers: {} } as TrpcContext["req"],
     res: {} as TrpcContext["res"],
   };

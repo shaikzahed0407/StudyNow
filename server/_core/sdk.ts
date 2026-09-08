@@ -41,6 +41,15 @@ class SDKServer {
     return new Map(Object.entries(parsed));
   }
 
+  public getActiveToken(req: Request): string | undefined {
+    const authHeader = req.headers.authorization;
+    if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+      return authHeader.slice(7).trim();
+    }
+    const cookies = this.parseCookies(req.headers.cookie);
+    return cookies.get(COOKIE_NAME);
+  }
+
   async createSessionToken(
     openId: string,
     options: { expiresInMs?: number; name?: string; email?: string; accounts?: string[] } = {},
@@ -195,18 +204,7 @@ class SDKServer {
   }
 
   async authenticateRequest(req: Request): Promise<User> {
-    // 1. Explicit Authorization Bearer header takes precedence (e.g., Supabase Google OAuth)
-    let sessionToken: string | undefined;
-    const authHeader = req.headers.authorization;
-    if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
-      sessionToken = authHeader.slice(7).trim();
-    }
-
-    // 2. Fall back to ambient session cookie only if no Authorization header was provided
-    if (!sessionToken) {
-      const cookies = this.parseCookies(req.headers.cookie);
-      sessionToken = cookies.get(COOKIE_NAME);
-    }
+    const sessionToken = this.getActiveToken(req);
 
     const session = await this.verifySession(sessionToken);
 
