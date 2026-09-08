@@ -16,6 +16,16 @@ export type SessionPayload = {
   appId?: string;
   name: string;
   email?: string | null;
+  accounts?: string[];
+};
+
+export type VerifiedSession = {
+  openId: string;
+  appId: string;
+  name: string;
+  email?: string;
+  role?: "student" | "teacher" | "admin" | "user";
+  accounts: string[];
 };
 
 class SDKServer {
@@ -23,7 +33,7 @@ class SDKServer {
     return new TextEncoder().encode(ENV.cookieSecret);
   }
 
-  private parseCookies(cookieHeader: string | undefined) {
+  public parseCookies(cookieHeader: string | undefined) {
     if (!cookieHeader) {
       return new Map<string, string>();
     }
@@ -33,14 +43,18 @@ class SDKServer {
 
   async createSessionToken(
     openId: string,
-    options: { expiresInMs?: number; name?: string; email?: string } = {},
+    options: { expiresInMs?: number; name?: string; email?: string; accounts?: string[] } = {},
   ): Promise<string> {
+    const existingAccounts = options.accounts || [];
+    const accounts = Array.from(new Set([openId, ...existingAccounts]));
+
     return this.signSession(
       {
         openId,
         appId: "studynow",
         name: options.name || "Student",
         email: options.email || null,
+        accounts,
       },
       options,
     );
@@ -60,6 +74,7 @@ class SDKServer {
       appId: payload.appId || "studynow",
       name: payload.name,
       email: payload.email,
+      accounts: payload.accounts || [payload.openId],
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setExpirationTime(expirationSeconds)
@@ -68,13 +83,7 @@ class SDKServer {
 
   async verifySession(
     tokenValue: string | undefined | null,
-  ): Promise<{
-    openId: string;
-    appId: string;
-    name: string;
-    email?: string;
-    role?: "student" | "teacher" | "admin" | "user";
-  } | null> {
+  ): Promise<VerifiedSession | null> {
     if (!tokenValue) {
       return null;
     }
@@ -85,14 +94,19 @@ class SDKServer {
       const { payload } = await jwtVerify(tokenValue, secretKey, {
         algorithms: ["HS256"],
       });
-      const { openId, appId, name, email } = payload as Record<string, unknown>;
+      const { openId, appId, name, email, accounts } = payload as Record<string, unknown>;
 
       if (isNonEmptyString(openId)) {
+        const accountList = Array.isArray(accounts)
+          ? (accounts.filter(isNonEmptyString) as string[])
+          : [openId];
+
         return {
           openId,
           appId: typeof appId === "string" ? appId : "studynow",
           name: typeof name === "string" ? name : "User",
           email: typeof email === "string" ? email : undefined,
+          accounts: accountList,
         };
       }
     } catch {
@@ -117,8 +131,12 @@ class SDKServer {
             (typeof user.email === "string" && user.email.split("@")[0]) ||
             "Student";
 
-          const provider = user.app_metadata?.provider || "email";
-          const openId = provider === "google" ? `google_${user.id}` : `supabase_${user.id}`;
+          let isGoogle = false;
+          if (user.app_metadata?.provider === "google") isGoogle = true;
+          if (Array.isArray(user.app_metadata?.providers) && user.app_metadata.providers.includes("google")) isGoogle = true;
+          if (Array.isArray(user.identities) && user.identities.some((id: any) => id?.provider === "google")) isGoogle = true;
+
+          const openId = isGoogle ? `google_${user.id}` : `supabase_${user.id}`;
           const role =
             meta.role === "teacher"
               ? "teacher"
@@ -132,6 +150,7 @@ class SDKServer {
             name,
             email: user.email,
             role,
+            accounts: [openId],
           };
         }
       } catch (err) {
@@ -142,15 +161,51 @@ class SDKServer {
     return null;
   }
 
-  async authenticateRequest(req: Request): Promise<User> {
-    const cookies = this.parseCookies(req.headers.cookie);
-    let sessionToken = cookies.get(COOKIE_NAME);
+  /**
+   * Switch the active account in a multi-account session.
+   * Cryptographically verifies current session and ensures target account exists.
+   */
+  async switchSessionAccount(
+    tokenValue: string | undefined | null,
+    targetOpenId: string,
+  ): Promise<{ token: string; user: User } | null> {
+    const session = await this.verifySession(tokenValue);
+    if (!session) return null;
 
+    const targetUser = await db.getUserByOpenId(targetOpenId);
+    if (!targetUser) return null;
+
+    // Check if target user is disabled
+    if (targetUser.status === "disabled") {
+      throw ForbiddenError("This account is disabled.");
+    }
+
+    // Ensure target account is tracked in accounts list
+    const updatedAccounts = Array.from(new Set([...session.accounts, targetOpenId]));
+
+    const newToken = await this.signSession({
+      openId: targetUser.openId,
+      appId: "studynow",
+      name: targetUser.name || "User",
+      email: targetUser.email,
+      accounts: updatedAccounts,
+    });
+
+    return { token: newToken, user: targetUser };
+  }
+
+  async authenticateRequest(req: Request): Promise<User> {
+    // 1. Explicit Authorization Bearer header takes precedence (e.g., Supabase Google OAuth)
+    let sessionToken: string | undefined;
+    const authHeader = req.headers.authorization;
+    if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+      sessionToken = authHeader.slice(7).trim();
+    }
+
+    // 2. Fall back to ambient session cookie only if no Authorization header was provided
     if (!sessionToken) {
-      const authHeader = req.headers.authorization;
-      if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
-        sessionToken = authHeader.slice(7);
-      }
+      const cookies = this.parseCookies(req.headers.cookie);
+      sessionToken = cookies.get(COOKIE_NAME);
     }
 
     const session = await this.verifySession(sessionToken);
@@ -163,6 +218,14 @@ class SDKServer {
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
 
+    if (!user && session.email) {
+      // Check if user already exists with this email
+      const existingByEmail = await db.getUserByEmail(session.email);
+      if (existingByEmail) {
+        user = existingByEmail;
+      }
+    }
+
     if (!user) {
       // Auto-provision user from verified session metadata (e.g. Google OAuth or Supabase email login)
       await db.upsertUser({
@@ -170,6 +233,8 @@ class SDKServer {
         name: session.name || "Student",
         email: session.email || null,
         role: session.role || "student",
+        status: "active",
+        teacherApproval: session.role === "teacher" ? "pending" : "approved",
         loginMethod: session.appId === "supabase" ? "supabase" : "local",
         lastSignedIn: signedInAt,
       });

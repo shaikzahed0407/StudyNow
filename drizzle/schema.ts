@@ -1,4 +1,5 @@
 import {
+  customType,
   integer,
   pgEnum,
   pgTable,
@@ -7,6 +8,25 @@ import {
   timestamp,
   varchar,
 } from "drizzle-orm/pg-core";
+
+/**
+ * pgvector custom type for Drizzle ORM.
+ * Stores/retrieves float arrays as PostgreSQL vector(768) values.
+ */
+const vector = customType<{ data: number[]; driverData: string }>({
+  dataType() {
+    return "vector(768)";
+  },
+  toDriver(value: number[]): string {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value: string): number[] {
+    return value
+      .replace(/[\[\]]/g, "")
+      .split(",")
+      .map(Number);
+  },
+});
 
 export const roleEnum = pgEnum("role", ["user", "student", "teacher", "admin"]);
 export const userStatusEnum = pgEnum("user_status", ["active", "pending", "disabled"]);
@@ -26,16 +46,20 @@ export const teacherResourceStatusEnum = pgEnum("teacher_resource_status", [
   "unpublished",
 ]);
 export const groupTypeEnum = pgEnum("group_type", ["class", "study_circle"]);
-export const groupRoleEnum = pgEnum("group_role", ["owner", "admin", "member"]);
+export const groupRoleEnum = pgEnum("group_role", ["owner", "admin", "manager", "member"]);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
+  avatarUrl: text("avatarUrl"),
+  bio: text("bio"),
+  externalLinks: text("externalLinks"),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: roleEnum("role").default("student").notNull(),
   status: userStatusEnum("status").default("active").notNull(),
+  teacherApproval: varchar("teacherApproval", { length: 32 }).default("approved").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -79,15 +103,30 @@ export const classStudents = pgTable("classStudents", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const collections = pgTable("collections", {
+  id: serial("id").primaryKey(),
+  userId: integer("userId").notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  color: varchar("color", { length: 32 }),
+  icon: varchar("icon", { length: 64 }),
+  sortOrder: integer("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
 export const notes = pgTable("notes", {
   id: serial("id").primaryKey(),
   ownerId: integer("ownerId").notNull(),
-  subjectId: integer("subjectId").notNull(),
+  collectionId: integer("collectionId"),
+  subjectId: integer("subjectId"),
   title: varchar("title", { length: 220 }).notNull(),
   source: varchar("source", { length: 120 }),
   tags: text("tags"),
   kind: noteKindEnum("kind").default("rich_text").notNull(),
   visibility: noteVisibilityEnum("visibility").default("private").notNull(),
+  isFavorite: integer("isFavorite").default(0).notNull(),
+  isTrash: integer("isTrash").default(0).notNull(),
+  deletedAt: timestamp("deletedAt"),
   content: text("content"),
   processingStatus: noteProcessingStatusEnum("processingStatus").default("uploaded").notNull(),
   processingError: text("processingError"),
@@ -114,6 +153,7 @@ export const noteChunks = pgTable("noteChunks", {
   keywords: text("keywords"),
   chunkOrder: integer("chunkOrder").default(0).notNull(),
   isActive: integer("isActive").default(1).notNull(),
+  embedding: vector("embedding"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -196,6 +236,7 @@ export const studyGroups = pgTable("study_groups", {
   name: varchar("name", { length: 160 }).notNull(),
   code: varchar("code", { length: 16 }).notNull().unique(),
   description: text("description"),
+  imageUrl: text("imageUrl"),
   type: groupTypeEnum("type").default("study_circle").notNull(),
   subjectId: integer("subjectId"),
   ownerId: integer("ownerId").notNull(),
@@ -219,12 +260,72 @@ export const studyGroupNotes = pgTable("study_group_notes", {
   sharedAt: timestamp("sharedAt").defaultNow().notNull(),
 });
 
+export const groupJoinRequests = pgTable("group_join_requests", {
+  id: serial("id").primaryKey(),
+  groupId: integer("groupId").notNull(),
+  userId: integer("userId").notNull(),
+  status: varchar("status", { length: 32 }).default("pending").notNull(), // pending | accepted | rejected
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  decidedAt: timestamp("decidedAt"),
+  decidedByUserId: integer("decidedByUserId"),
+});
+
+export const groupInvitations = pgTable("group_invitations", {
+  id: serial("id").primaryKey(),
+  groupId: integer("groupId").notNull(),
+  inviterId: integer("inviterId").notNull(),
+  inviteeId: integer("inviteeId").notNull(),
+  status: varchar("status", { length: 32 }).default("pending").notNull(), // pending | accepted | rejected | auto_joined
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  decidedAt: timestamp("decidedAt"),
+});
+
+export const savedNotes = pgTable("saved_notes", {
+  id: serial("id").primaryKey(),
+  userId: integer("userId").notNull(),
+  originalNoteId: integer("originalNoteId").notNull(),
+  collectionId: integer("collectionId"),
+  customTitle: varchar("customTitle", { length: 220 }),
+  isFavorite: integer("isFavorite").default(0).notNull(),
+  savedAt: timestamp("savedAt").defaultNow().notNull(),
+});
+
+export const roleChangeAudits = pgTable("role_change_audits", {
+  id: serial("id").primaryKey(),
+  actorId: integer("actorId").notNull(),
+  targetUserId: integer("targetUserId").notNull(),
+  oldRole: varchar("oldRole", { length: 32 }).notNull(),
+  newRole: varchar("newRole", { length: 32 }).notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("userId").notNull(),
+  actorId: integer("actorId"),
+  type: varchar("type", { length: 64 }).notNull(),
+  title: varchar("title", { length: 200 }).notNull(),
+  message: text("message").notNull(),
+  linkUrl: text("linkUrl"),
+  isRead: integer("isRead").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type Collection = typeof collections.$inferSelect;
+export type InsertCollection = typeof collections.$inferInsert;
 export type Subject = typeof subjects.$inferSelect;
 export type Note = typeof notes.$inferSelect;
+export type InsertNote = typeof notes.$inferInsert;
 export type TeacherResource = typeof teacherResources.$inferSelect;
 export type AiQuestion = typeof aiQuestions.$inferSelect;
 export type StudyGroup = typeof studyGroups.$inferSelect;
 export type StudyGroupMember = typeof studyGroupMembers.$inferSelect;
 export type StudyGroupNote = typeof studyGroupNotes.$inferSelect;
+export type GroupJoinRequest = typeof groupJoinRequests.$inferSelect;
+export type GroupInvitation = typeof groupInvitations.$inferSelect;
+export type SavedNote = typeof savedNotes.$inferSelect;
+export type RoleChangeAudit = typeof roleChangeAudits.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;

@@ -115,3 +115,41 @@ export async function storageGetSignedUrl(relKey: string): Promise<string> {
 
   return `/storage/${key.replace(/\//g, "_")}`;
 }
+
+export async function storageDownload(
+  relKey: string,
+): Promise<{ data: Buffer; contentType: string } | null> {
+  const key = normalizeKey(relKey);
+  const supabase = getSupabase();
+
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.storage
+        .from(ENV.supabaseStorageBucket)
+        .download(key);
+
+      if (!error && data) {
+        const arrayBuffer = await data.arrayBuffer();
+        return {
+          data: Buffer.from(arrayBuffer),
+          contentType: data.type || "application/octet-stream",
+        };
+      }
+    } catch (err) {
+      console.warn(`[Storage] Supabase download error for ${key}:`, err);
+    }
+  }
+
+  // Fallback to local filesystem
+  try {
+    const filePath = path.join(LOCAL_STORAGE_DIR, key.replace(/\//g, "_"));
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath);
+      return { data, contentType: "application/octet-stream" };
+    }
+  } catch (err) {
+    console.error(`[Storage] Local read error for ${key}:`, err);
+  }
+
+  return null;
+}

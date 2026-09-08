@@ -12,8 +12,8 @@ import Resources from "./pages/Resources";
 import Ask from "./pages/Ask";
 import Teacher from "./pages/Teacher";
 import Admin from "./pages/Admin";
-import AdminClasses from "./pages/AdminClasses";
 import StudyGroups from "./pages/StudyGroups";
+import Profile from "./pages/Profile";
 
 function WorkspaceRoute({ children }: { children: React.ReactNode }) {
   return <DashboardLayout>{children}</DashboardLayout>;
@@ -30,7 +30,7 @@ function Router() {
       <Route path="/ask"><WorkspaceRoute><Ask /></WorkspaceRoute></Route>
       <Route path="/teacher"><WorkspaceRoute><Teacher /></WorkspaceRoute></Route>
       <Route path="/admin"><WorkspaceRoute><Admin /></WorkspaceRoute></Route>
-      <Route path="/admin/classes"><WorkspaceRoute><AdminClasses /></WorkspaceRoute></Route>
+      <Route path="/profile"><WorkspaceRoute><Profile /></WorkspaceRoute></Route>
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

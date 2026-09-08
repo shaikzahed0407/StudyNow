@@ -35,7 +35,7 @@ type Role = "student" | "teacher";
 
 function contextFor(role: Role, id: number): TrpcContext {
   return {
-    user: { id, openId: `security-${id}`, name: "Security Test", email: `${id}@example.com`, loginMethod: "test", role, status: "active", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+    user: { id, openId: `security-${id}`, name: "Security Test", email: `${id}@example.com`, loginMethod: "test", role, teacherApproval: "approved", status: "active", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
     req: { protocol: "https", headers: {} } as TrpcContext["req"],
     res: {} as TrpcContext["res"],
   };
@@ -105,7 +105,7 @@ describe("StudyNow protected procedures", () => {
     const student = appRouter.createCaller(contextFor("student", 42));
     const response = await student.ai.ask({ question: "How does binary search divide the search space?", subjectId: 100 });
     expect(response.foundInNotes).toBe(true);
-    expect(mocks.getAuthorizedChunks).toHaveBeenCalledWith(42, 100);
+    expect(mocks.getAuthorizedChunks).toHaveBeenCalledWith(42, expect.objectContaining({ subjectId: 100 }));
     const llmRequest = llmMocks.invokeLLM.mock.calls[0]?.[0];
     expect(llmRequest.messages[1].content).toContain("My private algorithms note");
     expect(llmRequest.messages[1].content).toContain("Saved class algorithms note");

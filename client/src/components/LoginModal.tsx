@@ -54,6 +54,8 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
   const [demoName, setDemoName] = useState("");
   const [demoEmail, setDemoEmail] = useState("");
 
+  const logoutMutation = trpc.auth.logout.useMutation();
+
   const demoLoginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data) => {
       if (data.token) {
@@ -178,6 +180,11 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
 
     try {
       setIsGoogleLoading(true);
+      try {
+        sessionStorage.removeItem("studynow-token");
+      } catch {}
+      await logoutMutation.mutateAsync().catch(() => {});
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {

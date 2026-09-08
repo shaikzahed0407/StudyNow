@@ -15,5 +15,10 @@ export const ENV = {
   // Google Gemini Configuration
   geminiApiKey: process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? "",
   geminiModel: process.env.GEMINI_MODEL ?? "gemini-3.7-flash",
+  // Embedding Configuration
+  embeddingModel: process.env.EMBEDDING_MODEL ?? "gemini-embedding-2",
+  // Optional reranking (disabled by default to reduce latency/cost)
+  enableReranking: process.env.ENABLE_RERANKING === "true",
 };
+
 

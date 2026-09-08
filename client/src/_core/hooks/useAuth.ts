@@ -12,7 +12,12 @@ export function useAuth(options?: UseAuthOptions) {
   const { redirectOnUnauthenticated = false, redirectPath = "/" } = options ?? {};
   const utils = trpc.useUtils();
   const [oauthChecking, setOauthChecking] = useState<boolean>(() => {
-    if (typeof window !== "undefined" && window.location.hash.includes("access_token=")) {
+    if (
+      typeof window !== "undefined" &&
+      (window.location.hash.includes("access_token=") ||
+        window.location.search.includes("code=") ||
+        window.location.hash.includes("code="))
+    ) {
       return true;
     }
     return false;
@@ -48,14 +53,33 @@ export function useAuth(options?: UseAuthOptions) {
       utils.auth.me.invalidate();
     }
 
-    // 2. Supabase auth state listener
+    // 2. Supabase auth session retrieval & state listener
     if (supabase) {
+      // Check existing session persisted by Supabase in localStorage
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!mounted) return;
+        if (session?.access_token) {
+          const currentToken = sessionStorage.getItem("studynow-token");
+          if (currentToken !== session.access_token) {
+            sessionStorage.setItem("studynow-token", session.access_token);
+            utils.auth.me.invalidate();
+          }
+        }
+        setOauthChecking(false);
+      }).catch(() => {
+        if (mounted) setOauthChecking(false);
+      });
+
       const {
         data: { subscription },
-      } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (!mounted) return;
         if (session?.access_token) {
           sessionStorage.setItem("studynow-token", session.access_token);
+          await utils.auth.me.invalidate();
+        } else if (event === "SIGNED_OUT") {
+          sessionStorage.removeItem("studynow-token");
+          utils.auth.me.setData(undefined, null);
           await utils.auth.me.invalidate();
         }
         setOauthChecking(false);

@@ -1,56 +1,244 @@
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
-import { toast } from "sonner";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, FileText, Loader2, Plus, Send, UploadCloud, Users, XCircle } from "lucide-react";
-import { useRef, useState } from "react";
-
-const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
-const statusStyle: Record<string, string> = { draft: "border-amber-200 bg-amber-50 text-amber-700", published: "border-emerald-200 bg-emerald-50 text-emerald-700", unpublished: "border-slate-200 bg-slate-50 text-slate-600" };
+import {
+  BookOpen,
+  CheckCircle2,
+  Clock,
+  ExternalLink,
+  FileText,
+  GraduationCap,
+  Layers,
+  Loader2,
+  Plus,
+  Send,
+  ShieldAlert,
+  Sparkles,
+  UploadCloud,
+  Users,
+} from "lucide-react";
+import { useState } from "react";
+import { Link, useLocation } from "wouter";
 
 export default function Teacher() {
-  const [open, setOpen] = useState(false);
-  const [replaceId, setReplaceId] = useState<number | null>(null); const [title, setTitle] = useState(""); const [description, setDescription] = useState(""); const [content, setContent] = useState(""); const [classId, setClassId] = useState(""); const [subjectId, setSubjectId] = useState(""); const [file, setFile] = useState<File | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const utils = trpc.useUtils();
-  const classes = trpc.teacher.classes.useQuery();
-  const subjects = trpc.subjects.list.useQuery();
-  const notes = trpc.notes.list.useQuery({});
-  const resources = trpc.teacher.resources.useQuery();
-  const createText = trpc.notes.createText.useMutation();
-  const createFile = trpc.notes.createFile.useMutation();
-  const createResource = trpc.teacher.createResource.useMutation({ onSuccess: () => { toast.success("Resource saved"); reset(); utils.teacher.resources.invalidate(); utils.dashboard.summary.invalidate(); }, onError: error => toast.error(error.message) });
-  const replaceResource = trpc.teacher.replaceResource.useMutation({ onSuccess: () => { toast.success("Resource source replaced"); reset(); utils.teacher.resources.invalidate(); utils.dashboard.summary.invalidate(); }, onError: error => toast.error(error.message) });
-  const setStatus = trpc.teacher.setStatus.useMutation({ onSuccess: () => { toast.success("Publication status updated"); utils.teacher.resources.invalidate(); utils.dashboard.summary.invalidate(); }, onError: error => toast.error(error.message) });
-  const reset = () => { setOpen(false); setReplaceId(null); setTitle(""); setDescription(""); setContent(""); setClassId(""); setSubjectId(""); setFile(null); if (fileRef.current) fileRef.current.value = ""; };
-  const submit = async (event: React.FormEvent, status: "draft" | "published") => {
-    event.preventDefault();
-    if (!title.trim() || !subjectId || (!replaceId && !classId)) return toast.error(replaceId ? "Add a title and replacement source subject." : "Add a title, subject, and assigned class.");
-    try {
-      let noteId: number;
-      if (file) { if (file.size > 15 * 1024 * 1024) return toast.error("Files must be 15 MB or smaller."); const encoded = await fileToBase64(file); const note = await createFile.mutateAsync({ subjectId: Number(subjectId), title: title.trim(), source: "Teacher resource", tags: "class material", fileName: file.name, mimeType: file.type || "application/octet-stream", base64: encoded }); noteId = note.id; }
-      else { const note = await createText.mutateAsync({ subjectId: Number(subjectId), title: title.trim(), source: "Teacher resource", tags: "class material", content: content.trim() }); noteId = note.id; }
-      if (replaceId) { replaceResource.mutate({ resourceId: replaceId, noteId, title: title.trim(), description: description.trim() || undefined }); return; }
-      createResource.mutate({ classId: Number(classId), subjectId: Number(subjectId), noteId, title: title.trim(), description: description.trim() || undefined, status });
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save this resource."); }
-  };
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
 
+  const { data: status, isLoading: statusLoading } = trpc.teacher.status.useQuery();
+  const { data: managedGroups = [], isLoading: groupsLoading } =
+    trpc.teacher.managedGroups.useQuery(undefined, {
+      enabled: Boolean(status?.hasAccess),
+    });
+  const { data: resources = [], isLoading: resourcesLoading } =
+    trpc.teacher.resources.useQuery(undefined, {
+      enabled: Boolean(status?.hasAccess),
+    });
+
+  if (statusLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // 1. Pending Teacher Approval Screen
+  if (status?.teacherApproval === "pending" && status.role !== "admin") {
+    return (
+      <div className="mx-auto max-w-2xl py-12 px-4 text-center">
+        <Card className="rounded-3xl border-border/80 p-8 sm:p-12 shadow-soft bg-card/70 backdrop-blur">
+          <div className="mx-auto size-16 grid place-items-center rounded-3xl bg-amber-500/10 text-amber-500 mb-6">
+            <Clock className="size-8 animate-pulse" />
+          </div>
+
+          <Badge variant="outline" className="mb-3 border-amber-500/30 text-amber-600 bg-amber-50/50">
+            Pending Admin Review
+          </Badge>
+
+          <h1 className="font-display text-2xl sm:text-3xl font-extrabold tracking-tight">
+            Teacher Account Pending Approval
+          </h1>
+
+          <p className="mt-4 text-sm leading-6 text-muted-foreground text-center">
+            Your registration as an educator on StudyNow is currently queued for platform administrator
+            verification. While awaiting approval, you have full access to your personal note library,
+            can participate in study groups, and search materials with AI.
+          </p>
+
+          <div className="mt-8 rounded-2xl border border-border/60 bg-muted/30 p-4 text-xs text-left leading-5 text-muted-foreground space-y-2">
+            <p className="font-bold text-foreground flex items-center gap-1.5">
+              <Sparkles className="size-3.5 text-primary" /> What happens once approved?
+            </p>
+            <p>• Immediate ability to publish institutional lecture materials to classes.</p>
+            <p>• Dedicated educator privileges in peer study groups.</p>
+            <p>• Verified Teacher badge displayed on your public profile.</p>
+          </div>
+
+          <div className="mt-8 flex justify-center gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setLocation("/notes")}
+              className="rounded-xl text-xs font-semibold"
+            >
+              Open My Notes
+            </Button>
+            <Button
+              onClick={() => setLocation("/groups")}
+              className="rounded-xl text-xs font-bold shadow-lift"
+            >
+              Explore Study Groups
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // 2. Approved Teacher Dashboard Screen
   return (
-    <div className="mx-auto max-w-[1320px] space-y-7">
-      <section className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end"><div><div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.15em] text-primary"><UploadCloud className="size-4" /> Teacher portal</div><h1 className="font-display text-3xl font-black tracking-tight sm:text-5xl">Publish with context.</h1><p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">Keep drafts private until the right class and subject are ready. Then make the source visible to students in that assignment.</p></div><Button className="rounded-xl shadow-lift" onClick={() => setOpen(true)}><Plus className="mr-2 size-4" /> New class resource</Button></section>
-      <section className="grid gap-4 sm:grid-cols-3"><Card className="border-border/70 shadow-soft"><CardContent className="p-5"><p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">Assigned classes</p><div className="mt-2 font-display text-3xl font-black">{classes.isLoading ? <Skeleton className="h-9 w-14" /> : classes.data?.length || 0}</div></CardContent></Card><Card className="border-border/70 shadow-soft"><CardContent className="p-5"><p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">Drafts</p><div className="mt-2 font-display text-3xl font-black">{resources.isLoading ? <Skeleton className="h-9 w-14" /> : resources.data?.filter(item => item.status === "draft").length || 0}</div></CardContent></Card><Card className="border-border/70 shadow-soft"><CardContent className="p-5"><p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">Published</p><div className="mt-2 font-display text-3xl font-black text-teal-dark">{resources.isLoading ? <Skeleton className="h-9 w-14" /> : resources.data?.filter(item => item.status === "published").length || 0}</div></CardContent></Card></section>
-      {!classes.isLoading && !classes.data?.length && <Card className="border-dashed border-coral/30 bg-coral/[0.03] shadow-none"><CardContent className="flex items-start gap-4 p-6"><div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-coral/10 text-coral-dark"><Users className="size-5" /></div><div><p className="font-bold">No classes are assigned yet</p><p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">An administrator needs to connect your teacher account to a class before you can publish resources. Your portal is ready as soon as that access is granted.</p></div></CardContent></Card>}
-      <Card className="border-border/70 shadow-soft"><CardHeader><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Resource desk</p><CardTitle className="mt-1 font-display text-xl font-extrabold">Class notes and syllabus material</CardTitle></div><Badge variant="outline" className="rounded-full">{resources.data?.length || 0} total</Badge></div></CardHeader><CardContent>{resources.isLoading ? <div className="space-y-3"><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div> : resources.data?.length ? <div className="divide-y divide-border/70">{resources.data.map(resource => <div key={resource.id} className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="size-4" /></div><div className="min-w-0"><p className="truncate font-bold">{resource.title}</p><p className="mt-1 text-xs text-muted-foreground">{resource.description || "No description"}</p></div></div><div className="flex items-center gap-2"><Badge variant="outline" className={`rounded-full capitalize ${statusStyle[resource.status]}`}>{resource.status}</Badge><Button size="sm" variant="outline" className="rounded-lg bg-white/70" onClick={() => { setReplaceId(resource.id); setTitle(resource.title); setDescription(resource.description || ""); setSubjectId(String(resource.subjectId)); setClassId(String(resource.classId)); setOpen(true); }}>Replace</Button>{resource.status === "draft" ? <Button size="sm" className="rounded-lg" disabled={setStatus.isPending} onClick={() => setStatus.mutate({ resourceId: resource.id, status: "published" })}><Send className="mr-1.5 size-3.5" />Publish</Button> : <Button size="sm" variant="outline" className="rounded-lg bg-white/70" disabled={setStatus.isPending} onClick={() => setStatus.mutate({ resourceId: resource.id, status: resource.status === "published" ? "unpublished" : "published" })}>{resource.status === "published" ? "Unpublish" : "Republish"}</Button>}</div></div>)}</div> : <div className="grid place-items-center px-6 py-12 text-center"><div className="grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary"><UploadCloud className="size-6" /></div><p className="mt-4 font-display text-xl font-extrabold">Your resource desk is clear</p><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">Create a draft for a class, attach a source file or write the note inline, then publish when it is ready.</p><Button className="mt-5 rounded-xl" onClick={() => setOpen(true)}><Plus className="mr-2 size-4" /> Create resource</Button></div>}</CardContent></Card>
-      <div className="grid gap-4 md:grid-cols-3"><Card className="border-border/70 bg-primary text-primary-foreground shadow-soft"><CardContent className="p-5"><CheckCircle2 className="size-5" /><p className="mt-5 font-display text-lg font-extrabold">Draft first</p><p className="mt-2 text-sm leading-6 text-primary-foreground/75">Keep material private while you check source, tags, and class scope.</p></CardContent></Card><Card className="border-border/70 bg-teal text-white shadow-soft"><CardContent className="p-5"><Users className="size-5" /><p className="mt-5 font-display text-lg font-extrabold">Class-scoped</p><p className="mt-2 text-sm leading-6 text-white/75">Only students assigned to the published class can discover it.</p></CardContent></Card><Card className="border-border/70 bg-white/70 shadow-soft"><CardContent className="p-5"><XCircle className="size-5 text-coral-dark" /><p className="mt-5 font-display text-lg font-extrabold">Unpublish cleanly</p><p className="mt-2 text-sm leading-6 text-muted-foreground">Pull an outdated source from the library without deleting your record.</p></CardContent></Card></div>
+    <div className="mx-auto max-w-6xl space-y-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1 text-xs font-bold uppercase tracking-wider text-primary">
+            <GraduationCap className="size-4" /> Educator Workspace
+          </div>
+          <h1 className="font-display text-3xl font-extrabold tracking-tight">Teacher Portal</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Manage your academic study groups, monitor class materials, and distribute resources.
+          </p>
+        </div>
 
-      <Dialog open={open} onOpenChange={value => value ? setOpen(true) : reset()}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{replaceId ? "Replace a resource source" : "Create a class resource"}</DialogTitle><DialogDescription>{replaceId ? "Upload a new source or rewrite the note. Existing class visibility stays attached to this resource." : "Build the source, choose its class scope, and save as a draft or publish immediately."}</DialogDescription></DialogHeader><form onSubmit={event => submit(event, "draft")} className="space-y-4 py-2"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2 sm:col-span-2"><Label htmlFor="resource-title">Title</Label><Input id="resource-title" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Syllabus — Operating Systems" /></div><div className="space-y-2"><Label>Subject</Label><Select value={subjectId} onValueChange={setSubjectId}><SelectTrigger><SelectValue placeholder="Choose subject" /></SelectTrigger><SelectContent>{subjects.data?.map(subject => <SelectItem key={subject.id} value={String(subject.id)}>{subject.code ? `[${subject.code}] ${subject.name}` : subject.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Assigned class</Label><Select value={classId} onValueChange={setClassId}><SelectTrigger><SelectValue placeholder="Choose class" /></SelectTrigger><SelectContent>{classes.data?.map(item => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}</SelectContent></Select></div></div><div className="space-y-2"><Label htmlFor="resource-description">Description</Label><Input id="resource-description" value={description} onChange={e => setDescription(e.target.value)} placeholder="What should students know before opening this?" /></div><div className="space-y-2"><Label htmlFor="resource-content">Inline note <span className="font-normal text-muted-foreground">(optional if attaching a file)</span></Label><Textarea id="resource-content" value={content} onChange={e => setContent(e.target.value)} placeholder="Write a short syllabus note or context…" className="min-h-24" /></div><div className="rounded-2xl border border-dashed border-primary/25 bg-primary/[0.03] p-4"><div className="flex items-center gap-3"><UploadCloud className="size-5 text-primary" /><div className="flex-1"><p className="text-sm font-bold">Attach source file</p><p className="mt-1 text-xs text-muted-foreground">PDF, presentation, document, image, or text · up to 15 MB</p></div><Button type="button" variant="outline" className="rounded-lg bg-white" onClick={() => fileRef.current?.click()}>Choose file</Button></div>{file && <p className="mt-3 rounded-xl bg-white p-3 text-sm font-semibold">{file.name}</p>}<input ref={fileRef} type="file" className="hidden" accept=".txt,.md,.html,.pdf,.ppt,.pptx,.doc,.docx,.png,.jpg,.jpeg,.webp" onChange={e => setFile(e.target.files?.[0] || null)} /></div><DialogFooter><Button type="button" variant="outline" onClick={reset}>Cancel</Button><Button type="button" variant="outline" disabled={replaceResource.isPending || createResource.isPending || createText.isPending || createFile.isPending} onClick={event => submit(event as any, "draft")}><FileText className="mr-2 size-4" />Save draft</Button><Button type="button" disabled={replaceResource.isPending || createResource.isPending || createText.isPending || createFile.isPending} onClick={event => submit(event as any, "published")}><Send className="mr-2 size-4" />Publish now</Button></DialogFooter></form></DialogContent></Dialog>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => setLocation("/groups")}
+            className="rounded-xl text-xs font-bold shadow-lift gap-1.5"
+          >
+            <Plus className="size-3.5" /> Create Study Group
+          </Button>
+        </div>
+      </div>
+
+      {/* Metrics Row */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card className="rounded-3xl border-border/70 shadow-soft bg-card/70">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Managed Groups
+              </span>
+              <Users className="size-4 text-primary" />
+            </div>
+            <p className="mt-3 font-display text-3xl font-black">{managedGroups.length}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">Study circles and class groups</p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-3xl border-border/70 shadow-soft bg-card/70">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Teaching Resources
+              </span>
+              <FileText className="size-4 text-primary" />
+            </div>
+            <p className="mt-3 font-display text-3xl font-black">{resources.length}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">Class notes and reference items</p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-3xl border-border/70 shadow-soft bg-card/70">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Educator Status
+              </span>
+              <CheckCircle2 className="size-4 text-emerald-500" />
+            </div>
+            <p className="mt-3 font-display text-2xl font-black text-emerald-600">Verified</p>
+            <p className="text-[11px] text-muted-foreground mt-1">Full publishing permissions</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Managed Study Groups Section */}
+      <Card className="rounded-3xl border-border/70 shadow-soft overflow-hidden">
+        <CardHeader className="p-6 pb-4 border-b border-border/50">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="font-display text-xl font-bold">
+                Your Academic Study Groups
+              </CardTitle>
+              <CardDescription>
+                Collaborative peer spaces where you hold Owner or Manager authority.
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className="rounded-full">
+              {managedGroups.length} active
+            </Badge>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-6">
+          {groupsLoading ? (
+            <div className="flex h-32 items-center justify-center">
+              <Loader2 className="size-6 animate-spin text-primary" />
+            </div>
+          ) : managedGroups.length === 0 ? (
+            <div className="text-center py-10">
+              <Users className="size-10 mx-auto text-muted-foreground/40 mb-3" />
+              <p className="text-sm font-bold">No managed groups yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Create a study group to share lecture notes and organize study materials with students.
+              </p>
+              <Button
+                size="sm"
+                onClick={() => setLocation("/groups")}
+                className="mt-4 rounded-xl text-xs font-bold"
+              >
+                Create Study Group
+              </Button>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {managedGroups.map((grp) => (
+                <div
+                  key={grp.id}
+                  onClick={() => setLocation("/groups")}
+                  className="rounded-2xl border border-border/70 p-4 hover:border-primary/50 transition cursor-pointer bg-card/60 flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="font-bold text-sm text-foreground truncate">{grp.name}</h3>
+                      <Badge variant="secondary" className="capitalize text-[10px]">
+                        {grp.myRole || "Manager"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                      {grp.description || "No description"}
+                    </p>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span>Code: {grp.code}</span>
+                    <span className="text-primary font-semibold flex items-center gap-1">
+                      Manage <ExternalLink className="size-3" />
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
