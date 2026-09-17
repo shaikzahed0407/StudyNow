@@ -39,7 +39,7 @@ export function LoginModal({
   open = false,
   onOpenChange,
   isEmbedded = false,
-  showBackButton = true,
+  showBackButton = false,
 }: LoginModalProps) {
   const utils = trpc.useUtils();
 
@@ -228,6 +228,11 @@ export function LoginModal({
     }
   };
 
+  const isIntroPage =
+    typeof window !== "undefined" &&
+    (window.location.pathname === "/" || window.location.pathname === "");
+  const canShowBack = showBackButton && !isIntroPage;
+
   const formContent = (
     <>
       <div className="text-left mb-3">
@@ -235,7 +240,7 @@ export function LoginModal({
           <div className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lift">
             <BookOpen className="size-6" />
           </div>
-          {showBackButton && (
+          {canShowBack && (
             <Button
               type="button"
               variant="ghost"

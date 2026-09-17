@@ -43,10 +43,8 @@ import {
   LayoutDashboard,
   LogOut,
   PanelLeft,
-  Plus,
   Search,
   ShieldCheck,
-  Sparkles,
   User,
   Users,
 } from "lucide-react";
@@ -101,7 +99,6 @@ function DashboardLayoutContent({
   const isResizing = useRef(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const { logout } = useAuth();
-  const [loginModalOpen, setLoginModalOpen] = useState(false);
 
   const utils = trpc.useUtils();
 
@@ -207,8 +204,6 @@ function DashboardLayoutContent({
 
   return (
     <>
-      <LoginModal open={loginModalOpen} onOpenChange={setLoginModalOpen} />
-
       <div ref={sidebarRef} className="relative">
         <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-sidebar/90">
           <SidebarHeader className={`h-[76px] justify-center border-b border-sidebar-border/70 ${isCollapsed ? "px-0 items-center" : "px-3"}`}>
@@ -252,18 +247,6 @@ function DashboardLayoutContent({
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
-
-            {!isCollapsed && (
-              <div className="mt-auto rounded-2xl border border-sidebar-border bg-sidebar-accent/40 p-4">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                  <Sparkles className="size-3.5 text-primary" />
-                  <span>Decentralized Study</span>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Own your note collections. Share, save, and collaborate in chat-free groups.
-                </p>
-              </div>
-            )}
           </SidebarContent>
 
           {/* Sidebar Footer: Discord-Style Multi-Account Switcher */}
@@ -359,16 +342,6 @@ function DashboardLayoutContent({
                     </div>
                   </>
                 )}
-
-                <DropdownMenuSeparator />
-
-                <DropdownMenuItem
-                  className="gap-2.5 rounded-xl cursor-pointer py-2 font-medium"
-                  onClick={() => setLoginModalOpen(true)}
-                >
-                  <Plus className="size-4 text-muted-foreground" />
-                  <span>Add another account</span>
-                </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
 

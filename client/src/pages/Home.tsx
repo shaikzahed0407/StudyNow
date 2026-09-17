@@ -33,7 +33,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen overflow-hidden bg-background text-foreground">
-      <LoginModal open={loginOpen} onOpenChange={setLoginOpen} />
+      <LoginModal open={loginOpen} onOpenChange={setLoginOpen} showBackButton={false} />
 
       <header className="relative z-10 mx-auto flex max-w-[1240px] items-center justify-between px-6 py-6 lg:px-10">
         <div className="flex items-center gap-3">

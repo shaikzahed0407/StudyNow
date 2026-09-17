@@ -8,7 +8,6 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpen,
-  Bookmark,
   CheckCircle2,
   Clock,
   Compass,
@@ -275,39 +274,6 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
-      </section>
-
-      {/* Bottom Feature Cards */}
-      <section className="grid gap-4 sm:grid-cols-3">
-        <Link href="/notes">
-          <Card className="group rounded-3xl border-border/70 bg-gradient-to-br from-primary/15 to-card p-6 shadow-soft hover:shadow-lift transition cursor-pointer">
-            <Bookmark className="size-6 text-primary mb-3" />
-            <h3 className="font-display text-base font-bold">Raindrop-Style Library</h3>
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Create personal collections, organize bookmarks, star favorites, and preview slides without clutter.
-            </p>
-          </Card>
-        </Link>
-
-        <Link href="/groups">
-          <Card className="group rounded-3xl border-border/70 bg-gradient-to-br from-teal/15 to-card p-6 shadow-soft hover:shadow-lift transition cursor-pointer">
-            <Users className="size-6 text-teal-dark mb-3" />
-            <h3 className="font-display text-base font-bold">Chat-Free Study Circles</h3>
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Pure note sharing, collaborative document libraries, and delegated manager controls. Zero messaging noise.
-            </p>
-          </Card>
-        </Link>
-
-        <Link href="/ask">
-          <Card className="group rounded-3xl border-border/70 bg-gradient-to-br from-coral/15 to-card p-6 shadow-soft hover:shadow-lift transition cursor-pointer">
-            <Sparkles className="size-6 text-coral-dark mb-3" />
-            <h3 className="font-display text-base font-bold">Grounded AI Retrieval</h3>
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Synthesizes answers only from authorized personal and group notes with exact page and diagram citations.
-            </p>
-          </Card>
-        </Link>
       </section>
     </div>
   );
