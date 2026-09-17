@@ -1,0 +1,50 @@
+{
+  "name": "StudyNow",
+  "short_name": "StudyNow",
+  "description": "Decentralized knowledge hub with note management, chat-free study circles, and grounded AI retrieval.",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FAFAFA",
+  "theme_color": "#0052CC",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "My Notes",
+      "short_name": "Notes",
+      "description": "Open your personal study notes",
+      "url": "/notes",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Ask AI",
+      "short_name": "Ask AI",
+      "description": "Ask grounded questions about your notes",
+      "url": "/ask",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Study Groups",
+      "short_name": "Groups",
+      "description": "Open chat-free study circles",
+      "url": "/groups",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

@@ -8,6 +8,21 @@ type UseAuthOptions = {
   redirectPath?: string;
 };
 
+let isLoggingOut = false;
+
+function clearAuthStorage() {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem("studynow-token");
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith("sb-") || key.includes("supabase.auth"))) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {}
+}
+
 export function useAuth(options?: UseAuthOptions) {
   const { redirectOnUnauthenticated = false, redirectPath = "/" } = options ?? {};
   const utils = trpc.useUtils();
@@ -41,6 +56,11 @@ export function useAuth(options?: UseAuthOptions) {
   useEffect(() => {
     let mounted = true;
 
+    if (isLoggingOut) {
+      setOauthChecking(false);
+      return;
+    }
+
     // 1. Direct hash extraction for instantaneous response
     if (typeof window !== "undefined" && window.location.hash.includes("access_token=")) {
       try {
@@ -51,8 +71,9 @@ export function useAuth(options?: UseAuthOptions) {
           exchangeSupabaseMutation
             .mutateAsync({ supabaseToken: token })
             .then((res) => {
-              if (!mounted) return;
+              if (!mounted || isLoggingOut) return;
               if (res?.token) {
+                isLoggingOut = false;
                 sessionStorage.setItem("studynow-token", res.token);
                 utils.auth.me.setData(undefined, res.user as any);
               }
@@ -77,14 +98,15 @@ export function useAuth(options?: UseAuthOptions) {
     if (supabase) {
       // Check existing session persisted by Supabase in localStorage only if no active StudyNow session
       supabase.auth.getSession().then(({ data: { session } }) => {
-        if (!mounted) return;
+        if (!mounted || isLoggingOut) return;
         const currentToken = sessionStorage.getItem("studynow-token");
         if (session?.access_token && !currentToken) {
           exchangeSupabaseMutation
             .mutateAsync({ supabaseToken: session.access_token })
             .then((res) => {
-              if (!mounted) return;
+              if (!mounted || isLoggingOut) return;
               if (res?.token) {
+                isLoggingOut = false;
                 sessionStorage.setItem("studynow-token", res.token);
                 utils.auth.me.setData(undefined, res.user as any);
                 utils.auth.me.invalidate();
@@ -105,12 +127,13 @@ export function useAuth(options?: UseAuthOptions) {
       const {
         data: { subscription },
       } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (!mounted) return;
+        if (!mounted || isLoggingOut) return;
         const currentToken = sessionStorage.getItem("studynow-token");
         if (session?.access_token && !currentToken) {
           try {
             const res = await exchangeSupabaseMutation.mutateAsync({ supabaseToken: session.access_token });
-            if (res?.token && mounted) {
+            if (res?.token && mounted && !isLoggingOut) {
+              isLoggingOut = false;
               sessionStorage.setItem("studynow-token", res.token);
               utils.auth.me.setData(undefined, res.user as any);
               await utils.auth.me.invalidate();
@@ -118,7 +141,7 @@ export function useAuth(options?: UseAuthOptions) {
             }
           } catch {}
         } else if (event === "SIGNED_OUT") {
-          sessionStorage.removeItem("studynow-token");
+          clearAuthStorage();
           utils.auth.me.setData(undefined, null);
           await utils.auth.me.invalidate();
         }
@@ -135,11 +158,15 @@ export function useAuth(options?: UseAuthOptions) {
   }, [utils]);
 
   const logout = useCallback(async () => {
+    isLoggingOut = true;
     try {
+      clearAuthStorage();
+      utils.auth.me.setData(undefined, null);
+
       if (supabase) {
         await supabase.auth.signOut().catch(() => {});
       }
-      await logoutMutation.mutateAsync();
+      await logoutMutation.mutateAsync().catch(() => {});
     } catch (error: unknown) {
       if (
         error instanceof TRPCClientError &&
@@ -149,20 +176,23 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
-      try {
-        sessionStorage.removeItem("studynow-token");
-      } catch {}
+      clearAuthStorage();
       utils.auth.me.setData(undefined, null);
-      await utils.auth.me.invalidate();
+      utils.auth.me.reset();
+      utils.auth.listAccounts.reset();
+
+      if (typeof window !== "undefined") {
+        window.location.href = "/";
+      }
     }
   }, [logoutMutation, utils]);
 
   const state = useMemo(() => {
     return {
-      user: meQuery.data ?? null,
-      loading: oauthChecking || meQuery.isLoading || logoutMutation.isPending,
+      user: isLoggingOut ? null : (meQuery.data ?? null),
+      loading: isLoggingOut ? true : (oauthChecking || meQuery.isLoading || logoutMutation.isPending),
       error: meQuery.error ?? logoutMutation.error ?? null,
-      isAuthenticated: Boolean(meQuery.data),
+      isAuthenticated: isLoggingOut ? false : Boolean(meQuery.data),
     };
   }, [
     meQuery.data,

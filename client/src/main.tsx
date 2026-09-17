@@ -77,3 +77,27 @@ createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </trpc.Provider>
 );
+
+// Register PWA Service Worker
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((reg) => {
+        reg.addEventListener("updatefound", () => {
+          const installingWorker = reg.installing;
+          if (installingWorker) {
+            installingWorker.addEventListener("statechange", () => {
+              if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
+                console.log("[PWA] New version available; will activate on next reload.");
+              }
+            });
+          }
+        });
+      })
+      .catch((err) => {
+        console.warn("[PWA] Service worker registration failed:", err);
+      });
+  });
+}
+
